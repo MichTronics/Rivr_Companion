@@ -1,0 +1,28 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.fvm/
+build/
+pubspec.lock
+
+# Generated
+lib/**/*.g.dart
+lib/**/*.freezed.dart
+
+# Android
+android/.gradle/
+android/local.properties
+android/captures/
+android/**/GeneratedPluginRegistrant.java
+key.properties
+**/*.keystore
+**/*.jks
+
+# iOS / macOS (not in scope, excluded for safety)
+ios/
+macos/
+
+# Windows / Linux generated files — regenerate with: flutter create --platforms=linux,windows .
+# Uncomment below to commit them:
+# !linux/
+# !windows/
