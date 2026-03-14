@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -144,9 +145,20 @@ class BleService extends RivrTransport {
         }
       });
 
-      // Mandatory MTU negotiation — min Rivr frame is 25 bytes, the ATT
-      // default payload of 20 bytes would truncate every incoming frame.
-      await device.requestMtu(247);
+      // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
+      // Wait 300 ms after connect() returns: on Samsung One UI 7 (Android 15)
+      // calling requestMtu() immediately races against GATT channel init and
+      // throws PlatformException even though the connection is healthy.
+      // The call is non-fatal: the OS-level ATT MTU exchange during connection
+      // setup may have already negotiated a sufficient size.
+      await Future.delayed(const Duration(milliseconds: 300));
+      try {
+        await device.requestMtu(247);
+      } catch (mtuErr) {
+        // Log and continue — requestMtu can legitimately fail when the peer
+        // already completed ATT MTU negotiation during connection setup.
+        debugPrint('[BLE] requestMtu failed (non-fatal): $mtuErr');
+      }
 
       _wasConnected = true;
       _reconnectAttempt = 0;

@@ -311,30 +311,46 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       _isScanning = true;
       _scanned = [];
     });
-
-    // Each scan creates a fresh transport; the manager takes ownership.
-    final service = _mode == _ConnectMode.ble
-        ? BleService(phoneNodeId: ref.read(settingsProvider).phoneNodeId)
-        : SerialService();
-    await ref.read(connectionManagerProvider).useTransport(service);
-    await _scanSub?.cancel();
-    _scanSub = ref.read(connectionManagerProvider).eventStream.listen((event) {
-      if (!mounted) return;
-      if (event is RawLineEvent) {
-        if (event.line.startsWith('BLE_SCAN:') ||
-            event.line.startsWith('USB_SCAN:')) {
-          setState(() => _scanned.add(event.line));
+    try {
+      // Each scan creates a fresh transport; the manager takes ownership.
+      final service = _mode == _ConnectMode.ble
+          ? BleService(phoneNodeId: ref.read(settingsProvider).phoneNodeId)
+          : SerialService();
+      await ref.read(connectionManagerProvider).useTransport(service);
+      await _scanSub?.cancel();
+      _scanSub = ref.read(connectionManagerProvider).eventStream.listen((event) {
+        if (!mounted) return;
+        if (event is RawLineEvent) {
+          if (event.line.startsWith('BLE_SCAN:') ||
+              event.line.startsWith('USB_SCAN:')) {
+            setState(() => _scanned.add(event.line));
+          }
         }
+      });
+      await ref.read(connectionManagerProvider).startScan();
+      await Future.delayed(const Duration(seconds: 5));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Scan failed: $e')),
+        );
       }
-    });
-    await ref.read(connectionManagerProvider).startScan();
-    await Future.delayed(const Duration(seconds: 5));
-    if (mounted) setState(() => _isScanning = false);
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
+    }
   }
 
   Future<void> _connectTo(String id) async {
     Navigator.pop(context);
-    await ref.read(connectionManagerProvider).connect(id);
+    try {
+      await ref.read(connectionManagerProvider).connect(id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Connection failed: $e')),
+        );
+      }
+    }
   }
 }
 
