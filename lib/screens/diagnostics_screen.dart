@@ -215,6 +215,37 @@ class _OverviewTab extends StatelessWidget {
             _InfoRow('Retry OK / fail', '${latest.retrySuccess} / ${latest.retryFail}'),
             const SizedBox(height: 16),
 
+            // BLE-specific counters (§11: ble_conn, ble_rx, ble_tx, ble_err)
+            _SectionHeader('BLE transport'),
+            Row(children: [
+              Expanded(
+                child: MetricCard(
+                  label: 'Connections',
+                  value: '${latest.bleConn}',
+                  icon: Icons.bluetooth_connected,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: MetricCard(
+                  label: 'RX from phone',
+                  value: '${latest.bleRx}',
+                  icon: Icons.arrow_downward,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: MetricCard(
+                  label: 'TX to phone',
+                  value: '${latest.bleTx}',
+                  icon: Icons.arrow_upward,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            _InfoRow('BLE stack errors', '${latest.bleErr}'),
+            const SizedBox(height: 16),
+
             if (isConnected)
               Center(
                 child: FilledButton.tonal(

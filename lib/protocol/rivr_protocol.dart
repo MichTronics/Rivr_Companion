@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 import '../models/metrics.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
@@ -24,6 +26,215 @@ class NodeEvent extends RivrEvent {
 class RawLineEvent extends RivrEvent {
   final String line;
   RawLineEvent(this.line);
+}
+
+// ── Binary Rivr frame constants ────────────────────────────────────────────
+
+const int _kMagic = 0x5256; // 'RV' little-endian
+const int _kVersion = 1;
+const int _kTtlDefault = 7;
+const int _kBroadcast = 0xFFFFFFFF;
+
+// Packet type constants (§6 of the BLE integration guide).
+const int _kPktChat      = 1;
+const int _kPktBeacon    = 2;
+const int _kPktRouteReq  = 3;
+const int _kPktRouteRpl  = 4;
+const int _kPktAck       = 5;
+const int _kPktData      = 6;
+const int _kPktProgPush  = 7;
+const int _kPktTelemetry = 8;
+const int _kPktMailbox   = 9;
+const int _kPktAlert     = 10;
+
+/// A decoded binary Rivr frame (§6 of the BLE integration guide).
+class RivrFrame {
+  final int magic;
+  final int version;
+  final int pktType;
+  final int flags;
+  final int ttl;
+  final int srcId;
+  final int dstId;
+  final int netId;
+  final int hopCount;
+  final int seq;
+  final int pktId;
+  final Uint8List payload;
+
+  const RivrFrame({
+    required this.magic,
+    required this.version,
+    required this.pktType,
+    required this.flags,
+    required this.ttl,
+    required this.srcId,
+    required this.dstId,
+    required this.netId,
+    required this.hopCount,
+    required this.seq,
+    required this.pktId,
+    required this.payload,
+  });
+
+  bool get isChat     => pktType == _kPktChat;
+  bool get isBeacon   => pktType == _kPktBeacon;
+  bool get isTelemetry => pktType == _kPktTelemetry;
+
+  /// Decode a frame from raw bytes.  Returns null if magic or CRC is invalid.
+  static RivrFrame? decode(Uint8List bytes) {
+    if (bytes.length < 25) return null; // min frame (23 header + 0 payload + 2 CRC)
+    final bd = ByteData.sublistView(bytes);
+
+    final magic = bd.getUint16(0, Endian.little);
+    if (magic != _kMagic) return null;
+
+    final payloadLen = bytes[21];
+    final expectedLen = 23 + payloadLen + 2;
+    if (bytes.length < expectedLen) return null;
+
+    // Verify CRC-16/CCITT over bytes [0 .. 23+payloadLen-1]
+    final crcData = bytes.sublist(0, 23 + payloadLen);
+    final crcGot = bd.getUint16(23 + payloadLen, Endian.little);
+    if (_crc16(crcData) != crcGot) return null;
+
+    return RivrFrame(
+      magic:     magic,
+      version:   bytes[2],
+      pktType:   bytes[3],
+      flags:     bytes[4],
+      ttl:       bytes[5],
+      srcId:     bd.getUint32(6, Endian.little),
+      dstId:     bd.getUint32(10, Endian.little),
+      netId:     bd.getUint16(14, Endian.little),
+      hopCount:  bytes[16],
+      seq:       bd.getUint16(17, Endian.little),
+      pktId:     bd.getUint16(19, Endian.little),
+      payload:   bytes.sublist(23, 23 + payloadLen),
+    );
+  }
+
+  /// Encode this frame to bytes, computing the CRC.
+  Uint8List encode() {
+    final totalLen = 23 + payload.length + 2;
+    final bytes = Uint8List(totalLen);
+    final bd = ByteData.sublistView(bytes);
+
+    bd.setUint16(0, _kMagic, Endian.little);
+    bytes[2] = _kVersion;
+    bytes[3] = pktType;
+    bytes[4] = flags;
+    bytes[5] = ttl;
+    bd.setUint32(6, srcId, Endian.little);
+    bd.setUint32(10, dstId, Endian.little);
+    bd.setUint16(14, netId, Endian.little);
+    bytes[16] = hopCount;
+    bd.setUint16(17, seq, Endian.little);
+    bd.setUint16(19, pktId, Endian.little);
+    bytes[21] = payload.length;
+    bytes[22] = 0; // reserved
+    bytes.setRange(23, 23 + payload.length, payload);
+
+    final crc = _crc16(bytes.sublist(0, 23 + payload.length));
+    bd.setUint16(23 + payload.length, crc, Endian.little);
+    return bytes;
+  }
+
+  /// CRC-16/CCITT-FALSE: poly=0x1021, init=0xFFFF, refIn=false, refOut=false.
+  static int _crc16(Uint8List data) {
+    int crc = 0xFFFF;
+    for (final byte in data) {
+      crc ^= (byte & 0xFF) << 8;
+      for (var i = 0; i < 8; i++) {
+        if ((crc & 0x8000) != 0) {
+          crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+        } else {
+          crc = (crc << 1) & 0xFFFF;
+        }
+      }
+    }
+    return crc;
+  }
+}
+
+/// Codec for building and parsing binary frames over BLE.
+class RivrFrameCodec {
+  /// Parse a received BLE notification (one complete binary frame) into a
+  /// [RivrEvent], or return null if invalid / unrecognised.
+  static RivrEvent? parseFrame(Uint8List bytes) {
+    final frame = RivrFrame.decode(bytes);
+    if (frame == null) return null;
+
+    if (frame.isChat) {
+      // PKT_CHAT payload: 7-byte header then UTF-8 text
+      if (frame.payload.length < 7) return null;
+      final text = utf8.decode(frame.payload.sublist(7), allowMalformed: true).trim();
+      if (text.isEmpty) return null;
+      final srcHex = '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+      return ChatEvent(ChatMessage(
+        id: '${DateTime.now().microsecondsSinceEpoch}',
+        text: text,
+        senderNodeId: frame.srcId,
+        senderName: srcHex,
+        timestamp: DateTime.now(),
+        origin: MessageOrigin.remote,
+      ));
+    }
+
+    // PKT_BEACON: advertises node presence — extract src_id and emit a NodeEvent.
+    if (frame.isBeacon) {
+      final node = RivrNode(
+        nodeId: frame.srcId,
+        callsign: '',
+        rssiDbm: -120,
+        snrDb: 0,
+        hopCount: frame.hopCount,
+        linkScore: 0,
+        lossPercent: 0,
+        lastSeen: DateTime.now(),
+      );
+      return NodeEvent(node);
+    }
+
+    // Return as raw for other types (telemetry, routing, alert, etc.)
+    return RawLineEvent('BLE_FRAME:type=${frame.pktType},src=0x${frame.srcId.toRadixString(16).toUpperCase()}');
+  }
+
+  /// Build a PKT_CHAT frame for sending via BLE.
+  ///
+  /// [srcId] must be the phone's persistent virtual node ID.
+  /// [seq] is the per-origin incrementing sequence counter.
+  static Uint8List buildChatFrame({
+    required int srcId,
+    required int seq,
+    required String text,
+    int dstId = _kBroadcast,
+  }) {
+    final textBytes = utf8.encode(text);
+    // PKT_CHAT payload: 7-byte header then UTF-8 text
+    // Byte layout: [0]=reserved, [1]=reserved, [2..3]=msg_seq u16 LE, [4..6]=reserved
+    final payload = Uint8List(7 + textBytes.length);
+    ByteData.sublistView(payload).setUint16(2, seq & 0xFFFF, Endian.little);
+    payload.setRange(7, 7 + textBytes.length, textBytes);
+
+    return RivrFrame(
+      magic:    _kMagic,
+      version:  _kVersion,
+      pktType:  _kPktChat,
+      flags:    0,
+      ttl:      _kTtlDefault,
+      srcId:    srcId,
+      dstId:    dstId,
+      netId:    0,
+      hopCount: 0,
+      seq:      seq & 0xFFFF,
+      pktId:    0,
+      payload:  payload,
+    ).encode();
+  }
+
+  /// Generate a random 32-bit node ID for the phone (call once, then persist).
+  static int generateNodeId() => Random.secure().nextInt(0xFFFFFFFF - 1) + 1;
 }
 
 /// Parses raw text lines from the Rivr firmware serial output and emits typed
@@ -167,6 +378,10 @@ class RivrProtocol {
         retryAttempt:    _i(m, 'retry_att'),     // "retry_att"
         retrySuccess:    _i(m, 'retry_ok'),      // "retry_ok"
         retryFail:       _i(m, 'retry_fail'),    // "retry_fail"
+        bleConn:         _i(m, 'ble_conn'),      // "ble_conn"
+        bleRx:           _i(m, 'ble_rx'),        // "ble_rx"
+        bleTx:           _i(m, 'ble_tx'),        // "ble_tx"
+        bleErr:          _i(m, 'ble_err'),       // "ble_err"
         collectedAt: DateTime.now(),
       );
     } catch (_) {

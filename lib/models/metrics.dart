@@ -55,6 +55,12 @@ class RivrMetrics extends Equatable {
   final int retrySuccess;  // successful retries              "retry_ok"
   final int retryFail;     // failed retries                  "retry_fail"
 
+  // --- BLE transport (§11 of the BLE integration guide) ---
+  final int bleConn;       // cumulative successful BLE connections  "ble_conn"
+  final int bleRx;         // frames received from phone             "ble_rx"
+  final int bleTx;         // frames forwarded to phone              "ble_tx"
+  final int bleErr;        // BLE stack errors                       "ble_err"
+
   final DateTime collectedAt;
 
   const RivrMetrics({
@@ -93,6 +99,10 @@ class RivrMetrics extends Equatable {
     required this.retryAttempt,
     required this.retrySuccess,
     required this.retryFail,
+    required this.bleConn,
+    required this.bleRx,
+    required this.bleTx,
+    required this.bleErr,
     required this.collectedAt,
   });
 
@@ -106,9 +116,10 @@ class RivrMetrics extends Equatable {
     radioHardReset: 0, radioTxFail: 0, radioCrcFail: 0,
     routeCacheHit: 0, routeCacheMiss: 0,
     ackTx: 0, ackRx: 0, retryAttempt: 0, retrySuccess: 0, retryFail: 0,
+    bleConn: 0, bleRx: 0, bleTx: 0, bleErr: 0,
     collectedAt: DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   @override
-  List<Object?> get props => [nodeId, dcPct, txTotal, rxTotal, collectedAt];
+  List<Object?> get props => [nodeId, dcPct, txTotal, rxTotal, bleConn, bleRx, bleTx, bleErr, collectedAt];
 }
