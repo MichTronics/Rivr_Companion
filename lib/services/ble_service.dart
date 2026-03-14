@@ -275,21 +275,31 @@ class BleService extends RivrTransport {
 
   Future<void> _ensurePermissions() async {
     if (!Platform.isAndroid) return;
-    final permissions = <Permission>[
+
+    // Android 12+ (API 31+): BLUETOOTH_SCAN and BLUETOOTH_CONNECT are the only
+    // permissions required for BLE scanning.  BLUETOOTH_SCAN is declared with
+    // neverForLocation in the manifest, so ACCESS_FINE_LOCATION is not needed.
+    // Android ≤ 11: BLUETOOTH_SCAN maps to the legacy BLUETOOTH permission
+    // (auto-granted at install time) and ACCESS_FINE_LOCATION IS needed for BLE.
+    //
+    // Strategy: treat the two BT permissions as mandatory (throw on denial),
+    // and request location opportunistically — silently ignored if denied on
+    // Android 12+ where it is not in the manifest for API > 30.
+    final btStatuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-    ];
-    if (await Permission.locationWhenInUse.isDenied) {
-      permissions.add(Permission.locationWhenInUse);
-    }
-    final statuses = await permissions.request();
-    final denied = statuses.entries
+    ].request();
+
+    final denied = btStatuses.entries
         .where((e) => !e.value.isGranted)
         .map((e) => e.key.toString())
         .toList();
     if (denied.isNotEmpty) {
       throw Exception('BLE permissions not granted: ${denied.join(', ')}');
     }
+
+    // Non-fatal: required on Android ≤ 11 for BLE, not needed on Android 12+.
+    await Permission.locationWhenInUse.request();
   }
 
   void _emit(ConnectionStatus status, String name, {String? error}) {
