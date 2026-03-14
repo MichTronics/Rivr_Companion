@@ -7,6 +7,7 @@ import '../models/app_settings.dart';
 import '../providers/app_providers.dart';
 import '../providers/settings_provider.dart';
 import '../services/ble_service.dart';
+import '../services/connection_manager.dart';
 import '../services/serial_service.dart';
 import '../protocol/rivr_protocol.dart';
 
@@ -47,6 +48,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       data: (s) => s.deviceName,
       orElse: () => '',
     );
+
+    // Show a SnackBar whenever the connection transitions to error state.
+    ref.listen(connectionStateProvider, (_, next) {
+      next.whenData((s) {
+        if (s.status == ConnectionStatus.error && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(s.errorMessage ?? 'Connection failed'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 5),
+          ));
+        }
+      });
+    });
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8),

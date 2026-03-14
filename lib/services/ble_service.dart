@@ -121,7 +121,9 @@ class BleService extends RivrTransport {
   Future<void> _doConnect(String deviceId) async {
     _emit(ConnectionStatus.connecting, deviceId);
     try {
-      await _ensurePermissions();
+      // Permissions already guaranteed by startScan() — do NOT call
+      // _ensurePermissions() here; on Samsung One UI 7 the locationWhenInUse
+      // request inside it throws before any GATT call is made.
       await FlutterBluePlus.stopScan();
       await _scanSub?.cancel();
       await _isScanSub?.cancel();
@@ -133,10 +135,7 @@ class BleService extends RivrTransport {
 
       // connect() first — subscribing to connectionState before this causes
       // the stream's initial disconnected event to fire as a false failure.
-      await device.connect(
-        timeout: const Duration(seconds: 20),
-        autoConnect: false,
-      );
+      await _gattConnect(device, deviceId);
 
       _connSub = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected &&
@@ -146,17 +145,13 @@ class BleService extends RivrTransport {
       });
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
-      // Wait 300 ms after connect() returns: on Samsung One UI 7 (Android 15)
-      // calling requestMtu() immediately races against GATT channel init and
-      // throws PlatformException even though the connection is healthy.
-      // The call is non-fatal: the OS-level ATT MTU exchange during connection
-      // setup may have already negotiated a sufficient size.
-      await Future.delayed(const Duration(milliseconds: 300));
+      // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
+      // requestMtu() is called before the GATT bearer is fully initialised.
+      // Non-fatal: peer may have already completed ATT_MTU_REQ during setup.
+      await Future.delayed(const Duration(milliseconds: 600));
       try {
         await device.requestMtu(247);
       } catch (mtuErr) {
-        // Log and continue — requestMtu can legitimately fail when the peer
-        // already completed ATT MTU negotiation during connection setup.
         debugPrint('[BLE] requestMtu failed (non-fatal): $mtuErr');
       }
 
@@ -174,9 +169,34 @@ class BleService extends RivrTransport {
       _notifyChar = null;
       final s = e.toString();
       final msg = (s.contains('133') || s.toLowerCase().contains('timeout'))
-          ? 'Timed out — press the button on the node to open BLE window'
+          ? 'Connection failed — make sure the node button was pressed recently'
           : s;
       _emit(ConnectionStatus.error, deviceId, error: msg);
+    }
+  }
+
+  /// Attempt device.connect() with one automatic retry on GATT error 133.
+  ///
+  /// Error 133 (GATT_ERROR) is endemic on Samsung / Android 15: the BLE stack
+  /// refuses the first connection attempt after a fresh scan, but a second
+  /// attempt 500 ms later almost always succeeds.
+  Future<void> _gattConnect(BluetoothDevice device, String deviceId) async {
+    try {
+      await device.connect(
+        timeout: const Duration(seconds: 20),
+        autoConnect: false,
+      );
+    } catch (e) {
+      if (!e.toString().contains('133')) rethrow;
+      debugPrint('[BLE] GATT 133 on first attempt — retrying after 500 ms');
+      _emit(ConnectionStatus.connecting, 'Retrying…');
+      try { await device.disconnect(); } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Second attempt — let any exception propagate to the caller.
+      await device.connect(
+        timeout: const Duration(seconds: 20),
+        autoConnect: false,
+      );
     }
   }
 
