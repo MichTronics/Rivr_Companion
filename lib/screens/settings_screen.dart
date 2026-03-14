@@ -314,7 +314,7 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
 
     // Each scan creates a fresh transport; the manager takes ownership.
     final service = _mode == _ConnectMode.ble
-        ? BleService()
+        ? BleService(phoneNodeId: ref.read(settingsProvider).phoneNodeId)
         : SerialService();
     await ref.read(connectionManagerProvider).useTransport(service);
     await _scanSub?.cancel();

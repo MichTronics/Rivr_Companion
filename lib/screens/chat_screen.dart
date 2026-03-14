@@ -45,7 +45,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.read(chatProvider.notifier).addLocal(
           ChatMessage.local(
             text: text,
-            myNodeId: 0,
+            myNodeId: settings.phoneNodeId,
             myCallsign: settings.myCallsign,
           ),
         );

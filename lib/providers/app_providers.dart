@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/connection_manager.dart';
 import '../protocol/rivr_protocol.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
 import '../models/metrics.dart';
+import '../providers/settings_provider.dart';
 
 // ── Singleton connection manager ───────────────────────────────────────────
 
@@ -49,6 +49,11 @@ class ChatNotifier extends Notifier<List<ChatMessage>> {
           // through to the text-based dedup below.
           final localNodeId = ref.read(metricsProvider.notifier).latest.nodeId;
           if (localNodeId != 0 && msg.senderNodeId == localNodeId) return;
+
+          // Also suppress echoes where src == the phone's own BLE node-ID.
+          // This handles BLE where the node may relay our own frame back.
+          final phoneNodeId = ref.read(settingsProvider).phoneNodeId;
+          if (phoneNodeId != 0 && msg.senderNodeId == phoneNodeId) return;
 
           // Fallback: drop echoes whose text matches a recently-sent message.
           final sentAt = _recentlySent[msg.text];

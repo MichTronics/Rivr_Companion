@@ -10,6 +10,7 @@ class AppSettings extends Equatable {
   final String lastBleDeviceName;
   final int lastUsbBaudRate;
   final String myCallsign;      // optional display name for this device
+  final int phoneNodeId;        // persistent random node-ID for BLE frames
 
   const AppSettings({
     this.darkMode = false,
@@ -18,6 +19,7 @@ class AppSettings extends Equatable {
     this.lastBleDeviceName = '',
     this.lastUsbBaudRate = 115200,
     this.myCallsign = '',
+    this.phoneNodeId = 0,
   });
 
   AppSettings copyWith({
@@ -27,6 +29,7 @@ class AppSettings extends Equatable {
     String? lastBleDeviceName,
     int? lastUsbBaudRate,
     String? myCallsign,
+    int? phoneNodeId,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -35,12 +38,13 @@ class AppSettings extends Equatable {
       lastBleDeviceName: lastBleDeviceName ?? this.lastBleDeviceName,
       lastUsbBaudRate: lastUsbBaudRate ?? this.lastUsbBaudRate,
       myCallsign: myCallsign ?? this.myCallsign,
+      phoneNodeId: phoneNodeId ?? this.phoneNodeId,
     );
   }
 
   @override
   List<Object?> get props => [
     darkMode, advancedMode, lastConnectionType,
-    lastBleDeviceName, lastUsbBaudRate, myCallsign,
+    lastBleDeviceName, lastUsbBaudRate, myCallsign, phoneNodeId,
   ];
 }

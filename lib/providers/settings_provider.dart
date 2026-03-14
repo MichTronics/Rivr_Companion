@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
+import '../protocol/rivr_protocol.dart';
 
 class SettingsNotifier extends AsyncNotifier<AppSettings> {
   static const _darkModeKey = 'dark_mode';
@@ -9,10 +10,19 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   static const _bleNameKey = 'ble_device';
   static const _baudRateKey = 'baud_rate';
   static const _connTypeKey = 'conn_type';
+  static const _nodeIdKey   = 'phone_node_id';
 
   @override
   Future<AppSettings> build() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // Generate a stable random node-ID for BLE frames on first launch.
+    int phoneNodeId = prefs.getInt(_nodeIdKey) ?? 0;
+    if (phoneNodeId == 0) {
+      phoneNodeId = RivrFrameCodec.generateNodeId();
+      await prefs.setInt(_nodeIdKey, phoneNodeId);
+    }
+
     return AppSettings(
       darkMode: prefs.getBool(_darkModeKey) ?? false,
       advancedMode: prefs.getBool(_advancedKey) ?? false,
@@ -20,6 +30,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       lastBleDeviceName: prefs.getString(_bleNameKey) ?? '',
       lastUsbBaudRate: prefs.getInt(_baudRateKey) ?? 115200,
       lastConnectionType: ConnectionType.values[prefs.getInt(_connTypeKey) ?? 0],
+      phoneNodeId: phoneNodeId,
     );
   }
 
