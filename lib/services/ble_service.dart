@@ -74,7 +74,11 @@ class BleService extends RivrTransport {
 
     _scanSub = FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
-        final name = r.device.platformName;
+        // device.platformName is a cached system name — empty on first discovery.
+        // advertisementData.advName comes directly from the ADV packet and is
+        // the reliable source for the live "RIVR-XXXX" name.
+        final advName = r.advertisementData.advName;
+        final name = advName.isNotEmpty ? advName : r.device.platformName;
         if (!name.startsWith('RIVR-')) continue; // only Rivr nodes
         final id = r.device.remoteId.str;
         if (_seenScanIds.add(id)) {
@@ -92,8 +96,13 @@ class BleService extends RivrTransport {
     // No withServices filter: UUID is in scan response, not primary ADV.
     // Android hardware scan filters only check primary ADV packets, so
     // filtering by UUID silently drops every Rivr node.
+    // Low-latency scan mode ensures Android's duty-cycle window overlaps
+    // with the 100-200 ms advertising interval.
     unawaited(
-      FlutterBluePlus.startScan(timeout: const Duration(seconds: 10)),
+      FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 10),
+        androidScanMode: AndroidScanMode.lowLatency,
+      ),
     );
   }
 
