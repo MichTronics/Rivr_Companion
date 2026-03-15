@@ -32,10 +32,10 @@ final eventStreamProvider = StreamProvider<RivrEvent>((ref) {
 class ChatNotifier extends Notifier<List<ChatMessage>> {
   static const _maxMessages = 500;
 
-  /// Texts of messages we sent recently, used to suppress TX echoes when the
-  /// local node-ID is not yet known from @MET (e.g. before first metrics tick).
-  final _recentlySent = <String, DateTime>{};
-  static const _echoWindow = Duration(seconds: 15);
+  /// Pending local sends keyed by text, used to suppress a single immediate TX
+  /// echo when the radio's node-ID is not yet known from @MET.
+  final _pendingEchoes = <String, ({DateTime sentAt, int remaining})>{};
+  static const _echoWindow = Duration(seconds: 3);
 
   @override
   List<ChatMessage> build() {
@@ -55,10 +55,23 @@ class ChatNotifier extends Notifier<List<ChatMessage>> {
           final phoneNodeId = ref.read(settingsProvider).phoneNodeId;
           if (phoneNodeId != 0 && msg.senderNodeId == phoneNodeId) return;
 
-          // Fallback: drop echoes whose text matches a recently-sent message.
-          final sentAt = _recentlySent[msg.text];
-          if (sentAt != null &&
-              DateTime.now().difference(sentAt) < _echoWindow) return;
+          // Fallback: suppress only one near-immediate text match per local send.
+          final pending = _pendingEchoes[msg.text];
+          if (pending != null) {
+            if (DateTime.now().difference(pending.sentAt) < _echoWindow) {
+              final remaining = pending.remaining - 1;
+              if (remaining > 0) {
+                _pendingEchoes[msg.text] = (
+                  sentAt: pending.sentAt,
+                  remaining: remaining,
+                );
+              } else {
+                _pendingEchoes.remove(msg.text);
+              }
+              return;
+            }
+            _pendingEchoes.remove(msg.text);
+          }
 
           // Enrich sender name with callsign from node table if available
           final nodes = ref.read(nodesProvider);
@@ -90,9 +103,13 @@ class ChatNotifier extends Notifier<List<ChatMessage>> {
   void addSystem(String text) => _add(ChatMessage.system(text));
 
   void addLocal(ChatMessage msg) {
-    // Record the text so we can suppress the radio echo that comes back
-    // for the same message (used when node-ID from @MET is not yet known).
-    _recentlySent[msg.text] = DateTime.now();
+    // Record the text so we can suppress a single immediate radio echo for the
+    // same message (used when node-ID from @MET is not yet known).
+    final existing = _pendingEchoes[msg.text];
+    _pendingEchoes[msg.text] = (
+      sentAt: DateTime.now(),
+      remaining: (existing?.remaining ?? 0) + 1,
+    );
     _add(msg);
   }
 }

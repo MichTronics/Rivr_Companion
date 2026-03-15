@@ -24,6 +24,7 @@ class SerialService extends RivrTransport {
   final _stateCtrl = StreamController<RivrConnState>.broadcast();
   final _eventCtrl = StreamController<RivrEvent>.broadcast();
   final _lineBuffer = StringBuffer();
+  bool _disposed = false;
 
   // Mobile / Windows handles
   UsbPort? _usbPort;
@@ -73,8 +74,7 @@ class SerialService extends RivrTransport {
           }
         } catch (_) {}
         // Format: USB_SCAN:<path>:<label>
-        _eventCtrl
-            .add(RawLineEvent('USB_SCAN:${entry.path}:$label'));
+        _safeAddEvent(RawLineEvent('USB_SCAN:${entry.path}:$label'));
       }
     }
   }
@@ -82,7 +82,7 @@ class SerialService extends RivrTransport {
   Future<void> _mobileScan() async {
     final devices = await UsbSerial.listDevices();
     for (final d in devices) {
-      _eventCtrl.add(RawLineEvent(
+      _safeAddEvent(RawLineEvent(
           'USB_SCAN:${d.deviceId}:${d.manufacturerName ?? ''}:${d.productName ?? ''}'));
     }
   }
@@ -152,7 +152,9 @@ class SerialService extends RivrTransport {
         final line = _lineBuffer.toString();
         _lineBuffer.clear();
         final event = RivrProtocol.parseLine(line);
-        if (event != null) _eventCtrl.add(event);
+        if (event != null && !_disposed && !_eventCtrl.isClosed) {
+          _eventCtrl.add(event);
+        }
       } else {
         _lineBuffer.writeCharCode(ch);
       }
@@ -183,21 +185,38 @@ class SerialService extends RivrTransport {
     _usbRxSub = null;
     _usbPort = null;
 
-    _emit(ConnectionStatus.disconnected, '');
+    if (!_disposed) {
+      _emit(ConnectionStatus.disconnected, '');
+    }
   }
 
   @override
   void dispose() {
-    disconnect();
-    _stateCtrl.close();
-    _eventCtrl.close();
+    if (_disposed) return;
+    _disposed = true;
+    unawaited(_shutdown());
+  }
+
+  Future<void> _shutdown() async {
+    try {
+      await disconnect();
+    } finally {
+      await _stateCtrl.close();
+      await _eventCtrl.close();
+    }
   }
 
   void _emit(ConnectionStatus status, String name, {String? error}) {
+    if (_disposed || _stateCtrl.isClosed) return;
     _stateCtrl.add(RivrConnState(
       status: status,
       deviceName: name,
       errorMessage: error,
     ));
+  }
+
+  void _safeAddEvent(RivrEvent event) {
+    if (_disposed || _eventCtrl.isClosed) return;
+    _eventCtrl.add(event);
   }
 }
