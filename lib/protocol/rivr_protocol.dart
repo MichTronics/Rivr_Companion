@@ -46,6 +46,7 @@ const int _kPktProgPush  = 7;
 const int _kPktTelemetry = 8;
 const int _kPktMailbox   = 9;
 const int _kPktAlert     = 10;
+const int _kPktMetrics   = 11;
 
 /// A decoded binary Rivr frame (§6 of the BLE integration guide).
 class RivrFrame {
@@ -77,9 +78,10 @@ class RivrFrame {
     required this.payload,
   });
 
-  bool get isChat     => pktType == _kPktChat;
-  bool get isBeacon   => pktType == _kPktBeacon;
+  bool get isChat      => pktType == _kPktChat;
+  bool get isBeacon    => pktType == _kPktBeacon;
   bool get isTelemetry => pktType == _kPktTelemetry;
+  bool get isMetrics   => pktType == _kPktMetrics;
 
   /// Decode a frame from raw bytes.  Returns null if magic or CRC is invalid.
   static RivrFrame? decode(Uint8List bytes) {
@@ -194,6 +196,59 @@ class RivrFrameCodec {
         lastSeen: DateTime.now(),
       );
       return NodeEvent(node);
+    }
+
+    // PKT_METRICS: compact 48-byte binary metrics snapshot (firmware pushes every 5 s)
+    if (frame.isMetrics) {
+      // Payload layout (all little-endian, packed struct, 48 bytes):
+      // [0-3]   node_id         u32
+      // [4]     dc_pct          u8
+      // [5]     q_depth         u8
+      // [6-9]   tx_total        u32
+      // [10-13] rx_total        u32
+      // [14]    route_cache     u8
+      // [15]    lnk_cnt         u8
+      // [16]    lnk_best        u8
+      // [17]    lnk_rssi        i8
+      // [18]    lnk_loss        u8
+      // [19]    relay_density   u8
+      // [20-23] relay_skip      u32
+      // [24-27] rx_fail         u32
+      // [28-31] rx_dup          u32
+      // [32-35] ble_conn        u32
+      // [36-39] ble_rx          u32
+      // [40-43] ble_tx          u32
+      // [44-47] ble_err         u32
+      if (frame.payload.length < 48) return null;
+      final pd = ByteData.sublistView(frame.payload);
+      return MetricsEvent(RivrMetrics(
+        nodeId:        pd.getUint32(0,  Endian.little),
+        dcPct:         frame.payload[4],
+        qDepth:        frame.payload[5],
+        txTotal:       pd.getUint32(6,  Endian.little),
+        rxTotal:       pd.getUint32(10, Endian.little),
+        routeCache:    frame.payload[14],
+        lnkCnt:        frame.payload[15],
+        lnkBest:       frame.payload[16],
+        lnkRssi:       pd.getInt8(17),
+        lnkLoss:       frame.payload[18],
+        relayDensity:  frame.payload[19],
+        relaySkip:     pd.getUint32(20, Endian.little),
+        rxDecodeFail:  pd.getUint32(24, Endian.little),
+        rxDedupeDrop:  pd.getUint32(28, Endian.little),
+        bleConn:       pd.getUint32(32, Endian.little),
+        bleRx:         pd.getUint32(36, Endian.little),
+        bleTx:         pd.getUint32(40, Endian.little),
+        bleErr:        pd.getUint32(44, Endian.little),
+        // fields not in the compact BLE payload—excluded to save space:
+        relayDelay:    0, relayFwd:  0, relaySel:      0, relayCan:      0,
+        rxTtlDrop:     0, rxBadType: 0, rxBadHop:      0,
+        txQueueFull:   0, dutyBlocked: 0, noRoute:     0, loopDetectDrop: 0,
+        radioHardReset: 0, radioTxFail: 0, radioCrcFail: 0,
+        routeCacheHit: 0, routeCacheMiss: 0,
+        ackTx: 0, ackRx: 0, retryAttempt: 0, retrySuccess: 0, retryFail: 0,
+        collectedAt:   DateTime.now(),
+      ));
     }
 
     // Return as raw for other types (telemetry, routing, alert, etc.)
