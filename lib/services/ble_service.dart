@@ -24,8 +24,8 @@ void _bleLog(String msg, {bool error = false}) {
 ///   TX = node transmits → phone subscribes to notifications on 6e400003
 class NusUuids {
   static const service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-  static const rxChar  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // phone → node
-  static const txChar  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // node  → phone
+  static const rxChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // phone → node
+  static const txChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // node  → phone
 }
 
 /// BLE transport using Nordic UART Service (NUS).
@@ -47,8 +47,8 @@ class BleService extends RivrTransport {
   final _eventCtrl = StreamController<RivrEvent>.broadcast();
 
   BluetoothDevice? _device;
-  BluetoothCharacteristic? _writeChar;   // 6e400002 — phone writes here
-  BluetoothCharacteristic? _notifyChar;  // 6e400003 — node notifies here
+  BluetoothCharacteristic? _writeChar; // 6e400002 — phone writes here
+  BluetoothCharacteristic? _notifyChar; // 6e400003 — node notifies here
 
   StreamSubscription<List<int>>? _notifySub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
@@ -203,7 +203,9 @@ class BleService extends RivrTransport {
       if (!e.toString().contains('133')) rethrow;
       _bleLog('GATT error 133 on first attempt — retrying in 500 ms');
       _emit(ConnectionStatus.connecting, 'Retrying…');
-      try { await device.disconnect(); } catch (_) {}
+      try {
+        await device.disconnect();
+      } catch (_) {}
       await Future.delayed(const Duration(milliseconds: 500));
       // Second attempt — let any exception propagate to the caller.
       await device.connect(
@@ -245,33 +247,25 @@ class BleService extends RivrTransport {
       }
     }
     if (_writeChar == null || _notifyChar == null) {
-      throw Exception('NUS characteristics not found — Rivr BLE build required');
+      throw Exception(
+          'NUS characteristics not found — Rivr BLE build required');
     }
   }
 
   /// Subscribe to [char] notifications.
   ///
-  /// When the firmware requires MITM-authenticated encryption
-  /// (RIVR_BLE_PASSKEY != 0), the initial CCCD write returns
-  /// ATT_ERR_INSUFFICIENT_AUTHENTICATION (code 5).  flutter_blue_plus
-  /// throws on that error rather than waiting for bonding to complete.
+  /// On some stacks a protected CCCD write is enough to trigger the Android
+  /// bonding dialog; on NimBLE the CCCD can remain writable even when the
+  /// characteristic value itself requires authenticated encryption.
   ///
-  /// We catch that specific error, call [device.createBond()] to trigger
-  /// the OS-level pairing dialog (PIN entry or numeric comparison), wait
-  /// for the bond to be established, then retry setNotifyValue on the
-  /// now-authenticated link.
+  /// Keep this path as an opportunistic fast-path and use the same auth retry
+  /// logic on the first RX write as the real fallback.
   Future<void> _subscribeWithBonding(
       BluetoothDevice device, BluetoothCharacteristic char) async {
     try {
       await char.setNotifyValue(true);
     } catch (e) {
-      final msg = e.toString().toLowerCase();
-      final isAuthErr = msg.contains('insufficient') ||
-          msg.contains('error=5') ||
-          msg.contains('error=137') ||
-          msg.contains('auth') ||
-          msg.contains('security');
-      if (!isAuthErr) rethrow;
+      if (!_isAuthError(e)) rethrow;
       _bleLog(
           'setNotifyValue: authentication required — triggering OS bond dialog');
       // createBond() shows the pairing dialog and completes when BONDED
@@ -289,7 +283,8 @@ class BleService extends RivrTransport {
         '${bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}…');
     final event = RivrFrameCodec.parseFrame(Uint8List.fromList(bytes));
     if (event == null) {
-      _bleLog('parseFrame returned null for ${bytes.length}-byte payload', error: true);
+      _bleLog('parseFrame returned null for ${bytes.length}-byte payload',
+          error: true);
     }
     if (event != null) _safeAddEvent(event);
   }
@@ -300,7 +295,7 @@ class BleService extends RivrTransport {
   /// Non-chat commands are ignored — BLE carries frames, not serial CLI.
   @override
   Future<void> send(String command) async {
-    if (_writeChar == null) return;
+    if (_writeChar == null || _device == null) return;
     if (!command.startsWith('chat ')) return;
     final text = command.substring(5).trimRight();
     if (text.isEmpty) return;
@@ -309,10 +304,22 @@ class BleService extends RivrTransport {
       seq: _seq++,
       text: text,
     );
-    await _writeChar!.write(
-      frameBytes.toList(),
-      withoutResponse: _writeChar!.properties.writeWithoutResponse,
-    );
+    final value = frameBytes.toList();
+    try {
+      await _writeChar!.write(
+        value,
+        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+      );
+    } catch (e) {
+      if (!_isAuthError(e)) rethrow;
+      _bleLog(
+          'writeCharacteristic: authentication required — triggering OS bond dialog');
+      await _device!.createBond();
+      await _writeChar!.write(
+        value,
+        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+      );
+    }
   }
 
   // ── Disconnect ────────────────────────────────────────────────────────────
@@ -387,7 +394,8 @@ class BleService extends RivrTransport {
 
   void _emit(ConnectionStatus status, String name, {String? error}) {
     if (_disposed || _stateCtrl.isClosed) return;
-    _bleLog('state → $status  device="$name"${error != null ? '  error=$error' : ''}',
+    _bleLog(
+        'state → $status  device="$name"${error != null ? '  error=$error' : ''}',
         error: error != null);
     _stateCtrl.add(RivrConnState(
       status: status,
@@ -399,5 +407,14 @@ class BleService extends RivrTransport {
   void _safeAddEvent(RivrEvent event) {
     if (_disposed || _eventCtrl.isClosed) return;
     _eventCtrl.add(event);
+  }
+
+  bool _isAuthError(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('insufficient') ||
+        msg.contains('error=5') ||
+        msg.contains('error=137') ||
+        msg.contains('auth') ||
+        msg.contains('security');
   }
 }
