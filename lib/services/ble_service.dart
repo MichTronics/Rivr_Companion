@@ -10,6 +10,14 @@ import 'package:permission_handler/permission_handler.dart';
 import '../protocol/rivr_protocol.dart';
 import 'connection_manager.dart';
 
+// ignore: avoid_print
+void _bleLog(String msg, {bool error = false}) {
+  // print() → logcat I/flutter (filter: adb logcat -s flutter | grep RIVR_BLE)
+  // dev.log() → Dart DevTools Log view
+  print('[RIVR_BLE] $msg');
+  dev.log(msg, name: 'RIVR_BLE', level: error ? 1000 : 800);
+}
+
 /// Nordic UART Service (NUS) UUIDs.
 /// Names from the NODE's perspective:
 ///   RX = node receives  → phone writes to 6e400002
@@ -84,6 +92,7 @@ class BleService extends RivrTransport {
         if (!name.startsWith('RIVR-')) continue; // only Rivr nodes
         final id = r.device.remoteId.str;
         if (_seenScanIds.add(id)) {
+          _bleLog('found $name  id=$id  rssi=${r.rssi}');
           _safeAddEvent(RawLineEvent('BLE_SCAN:$id:$name'));
         }
       }
@@ -153,8 +162,7 @@ class BleService extends RivrTransport {
       try {
         await device.requestMtu(247);
       } catch (mtuErr) {
-        dev.log('requestMtu(247) failed (non-fatal): $mtuErr',
-            name: 'RIVR_BLE', level: 900 /* Level.WARNING */);
+        _bleLog('requestMtu(247) failed (non-fatal): $mtuErr');
       }
 
       _wasConnected = true;
@@ -173,8 +181,7 @@ class BleService extends RivrTransport {
       final msg = (s.contains('133') || s.toLowerCase().contains('timeout'))
           ? 'Connection failed — make sure the node button was pressed recently'
           : s;
-      dev.log('connect($deviceId) failed: $e\n$st',
-          name: 'RIVR_BLE', level: 1000 /* Level.SEVERE */);
+      _bleLog('connect($deviceId) failed: $e\n$st', error: true);
       _emit(ConnectionStatus.error, deviceId, error: msg);
     }
   }
@@ -192,10 +199,10 @@ class BleService extends RivrTransport {
       );
     } catch (e) {
       if (!e.toString().contains('133')) rethrow;
-      dev.log('GATT error 133 on first attempt — retrying in 500 ms',
-          name: 'RIVR_BLE', level: 900 /* Level.WARNING */);
+      _bleLog('GATT error 133 on first attempt — retrying in 500 ms');
       _emit(ConnectionStatus.connecting, 'Retrying…');
       try { await device.disconnect(); } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 500));
       // Second attempt — let any exception propagate to the caller.
       await device.connect(
         timeout: const Duration(seconds: 20),
@@ -243,12 +250,11 @@ class BleService extends RivrTransport {
   // ── Receive: binary Rivr frames ───────────────────────────────────────────
 
   void _onBytes(List<int> bytes) {
-    dev.log('rx ${bytes.length} bytes: ${bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}…',
-        name: 'RIVR_BLE', level: 500 /* Level.FINE */);
+    _bleLog('rx ${bytes.length} bytes: '
+        '${bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}…');
     final event = RivrFrameCodec.parseFrame(Uint8List.fromList(bytes));
     if (event == null) {
-      dev.log('parseFrame returned null for ${bytes.length}-byte payload',
-          name: 'RIVR_BLE', level: 900 /* Level.WARNING */);
+      _bleLog('parseFrame returned null for ${bytes.length}-byte payload', error: true);
     }
     if (event != null) _safeAddEvent(event);
   }
@@ -346,8 +352,8 @@ class BleService extends RivrTransport {
 
   void _emit(ConnectionStatus status, String name, {String? error}) {
     if (_disposed || _stateCtrl.isClosed) return;
-    dev.log('state → $status  device="$name"${error != null ? '  error=$error' : ''}',
-        name: 'RIVR_BLE', level: error != null ? 1000 : 800 /* SEVERE / INFO */);
+    _bleLog('state → $status  device="$name"${error != null ? '  error=$error' : ''}',
+        error: error != null);
     _stateCtrl.add(RivrConnState(
       status: status,
       deviceName: name,
