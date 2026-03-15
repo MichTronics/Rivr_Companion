@@ -291,9 +291,13 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
                       controller: scrollCtrl,
                       itemCount: _scanned.length,
                       itemBuilder: (_, i) {
-                        final parts = _scanned[i].split(':');
+                        // BLE events use | separator: BLE_SCAN|<mac>|<name>
+                        // USB events use : separator: USB_SCAN:<path>:<label>
+                        final line = _scanned[i];
+                        final isBle = line.startsWith('BLE_SCAN|');
+                        final parts = line.split(isBle ? '|' : ':');
                         final id = parts.length > 1 ? parts[1] : '';
-                        final name = parts.length > 2 ? parts.sublist(2).join(': ') : id;
+                        final name = parts.length > 2 ? parts.sublist(2).join(isBle ? '|' : ':') : id;
                         return ListTile(
                           leading: Icon(_mode == _ConnectMode.ble
                               ? Icons.bluetooth
@@ -335,7 +339,7 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       _scanSub = ref.read(connectionManagerProvider).eventStream.listen((event) {
         if (!mounted) return;
         if (event is RawLineEvent) {
-          if (event.line.startsWith('BLE_SCAN:') ||
+          if (event.line.startsWith('BLE_SCAN|') ||
               event.line.startsWith('USB_SCAN:')) {
             setState(() => _scanned.add(event.line));
           }

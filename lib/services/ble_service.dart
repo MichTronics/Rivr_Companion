@@ -93,7 +93,9 @@ class BleService extends RivrTransport {
         final id = r.device.remoteId.str;
         if (_seenScanIds.add(id)) {
           _bleLog('found $name  id=$id  rssi=${r.rssi}');
-          _safeAddEvent(RawLineEvent('BLE_SCAN:$id:$name'));
+          // Use | as separator — MAC addresses contain : so splitting on :
+          // gives only the first byte as the id.
+          _safeAddEvent(RawLineEvent('BLE_SCAN|$id|$name'));
         }
       }
     });
