@@ -66,6 +66,11 @@
             android:name="io.flutter.embedding.android.NormalTheme"
             android:resource="@style/NormalTheme" />
 
+        <!-- Declare v2 Flutter embedding -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
     </application>
 
 </manifest>
