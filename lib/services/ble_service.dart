@@ -238,7 +238,7 @@ class BleService extends RivrTransport {
           if (char.uuid == Guid(NusUuids.rxChar)) _writeChar = char;
           if (char.uuid == Guid(NusUuids.txChar)) {
             _notifyChar = char;
-            await char.setNotifyValue(true);
+            await _subscribeWithBonding(device, char);
             _notifySub = char.onValueReceived.listen(_onBytes);
           }
         }
@@ -246,6 +246,39 @@ class BleService extends RivrTransport {
     }
     if (_writeChar == null || _notifyChar == null) {
       throw Exception('NUS characteristics not found — Rivr BLE build required');
+    }
+  }
+
+  /// Subscribe to [char] notifications.
+  ///
+  /// When the firmware requires MITM-authenticated encryption
+  /// (RIVR_BLE_PASSKEY != 0), the initial CCCD write returns
+  /// ATT_ERR_INSUFFICIENT_AUTHENTICATION (code 5).  flutter_blue_plus
+  /// throws on that error rather than waiting for bonding to complete.
+  ///
+  /// We catch that specific error, call [device.createBond()] to trigger
+  /// the OS-level pairing dialog (PIN entry or numeric comparison), wait
+  /// for the bond to be established, then retry setNotifyValue on the
+  /// now-authenticated link.
+  Future<void> _subscribeWithBonding(
+      BluetoothDevice device, BluetoothCharacteristic char) async {
+    try {
+      await char.setNotifyValue(true);
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      final isAuthErr = msg.contains('insufficient') ||
+          msg.contains('error=5') ||
+          msg.contains('error=137') ||
+          msg.contains('auth') ||
+          msg.contains('security');
+      if (!isAuthErr) rethrow;
+      _bleLog(
+          'setNotifyValue: authentication required — triggering OS bond dialog');
+      // createBond() shows the pairing dialog and completes when BONDED
+      // (or throws on failure / user cancellation).
+      await device.createBond();
+      // Retry CCCD subscription on the now-authenticated encrypted link.
+      await char.setNotifyValue(true);
     }
   }
 
