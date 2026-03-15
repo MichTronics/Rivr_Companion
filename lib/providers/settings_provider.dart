@@ -63,6 +63,14 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     await prefs.setInt(_baudRateKey, rate);
     state = AsyncData((state.value ?? const AppSettings()).copyWith(lastUsbBaudRate: rate));
   }
+
+  Future<void> setConnectionType(ConnectionType type) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_connTypeKey, type.index);
+    state = AsyncData(
+      (state.value ?? const AppSettings()).copyWith(lastConnectionType: type),
+    );
+  }
 }
 
 /// Synchronous convenience accessor — returns default settings until async load

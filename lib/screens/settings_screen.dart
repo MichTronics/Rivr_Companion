@@ -48,6 +48,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       data: (s) => s.deviceName,
       orElse: () => '',
     );
+    final canUseSerialCli =
+        isConnected && settings.lastConnectionType == ConnectionType.usb;
 
     // Show a SnackBar whenever the connection transitions to error state.
     ref.listen(connectionStateProvider, (_, next) {
@@ -137,18 +139,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   leading: const Icon(Icons.developer_mode),
                   title: const Text('Request fwdset snapshot'),
                   subtitle: const Text('Prints relay candidate set to log'),
-                  enabled: isConnected,
-                  onTap: () => ref
-                      .read(connectionManagerProvider)
-                      .send(RivrProtocol.cmdFwdset),
+                  enabled: canUseSerialCli,
+                  onTap: canUseSerialCli
+                      ? () => ref
+                          .read(connectionManagerProvider)
+                          .send(RivrProtocol.cmdFwdset)
+                      : null,
                 ),
                 ListTile(
                   leading: const Icon(Icons.analytics_outlined),
                   title: const Text('Request routing stats (@RST)'),
-                  enabled: isConnected,
-                  onTap: () => ref
-                      .read(connectionManagerProvider)
-                      .send(RivrProtocol.cmdRtstats),
+                  subtitle: const Text('USB serial only'),
+                  enabled: canUseSerialCli,
+                  onTap: canUseSerialCli
+                      ? () => ref
+                          .read(connectionManagerProvider)
+                          .send(RivrProtocol.cmdRtstats)
+                      : null,
                 ),
               ],
             ],
@@ -225,6 +232,13 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
   _ConnectMode _mode = _ConnectMode.ble;
   List<String> _scanned = [];
   bool _isScanning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final lastType = ref.read(settingsProvider).lastConnectionType;
+    _mode = lastType == ConnectionType.usb ? _ConnectMode.usb : _ConnectMode.ble;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -330,10 +344,17 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       _scanned = [];
     });
     try {
+      final settings = ref.read(settingsProvider);
+      final selectedType =
+          _mode == _ConnectMode.ble ? ConnectionType.ble : ConnectionType.usb;
+      await ref
+          .read(settingsNotifierProvider.notifier)
+          .setConnectionType(selectedType);
+
       // Each scan creates a fresh transport; the manager takes ownership.
       final service = _mode == _ConnectMode.ble
-          ? BleService(phoneNodeId: ref.read(settingsProvider).phoneNodeId)
-          : SerialService();
+          ? BleService(phoneNodeId: settings.phoneNodeId)
+          : SerialService(baudRate: settings.lastUsbBaudRate);
       await ref.read(connectionManagerProvider).useTransport(service);
       await _scanSub?.cancel();
       _scanSub = ref.read(connectionManagerProvider).eventStream.listen((event) {

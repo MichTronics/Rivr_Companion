@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../models/app_settings.dart';
 import '../models/metrics.dart';
 import '../protocol/rivr_protocol.dart';
 import '../providers/app_providers.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/metric_card.dart';
 
 class DiagnosticsScreen extends ConsumerWidget {
@@ -16,10 +18,13 @@ class DiagnosticsScreen extends ConsumerWidget {
     final history = ref.watch(metricsProvider);
     final latest = ref.watch(latestMetricsProvider);
     final log = ref.watch(logProvider);
+    final settings = ref.watch(settingsProvider);
     final isConnected = ref.watch(connectionStateProvider).maybeWhen(
           data: (s) => s.isConnected,
           orElse: () => false,
         );
+    final canRequestMetrics =
+        isConnected && settings.lastConnectionType == ConnectionType.usb;
 
     return DefaultTabController(
       length: 3,
@@ -33,7 +38,12 @@ class DiagnosticsScreen extends ConsumerWidget {
           Expanded(
             child: TabBarView(
               children: [
-                _OverviewTab(latest: latest, isConnected: isConnected, ref: ref),
+                _OverviewTab(
+                  latest: latest,
+                  isConnected: isConnected,
+                  canRequestMetrics: canRequestMetrics,
+                  ref: ref,
+                ),
                 _ChartsTab(history: history),
                 _RawLogTab(lines: log),
               ],
@@ -50,25 +60,26 @@ class DiagnosticsScreen extends ConsumerWidget {
 class _OverviewTab extends StatelessWidget {
   final RivrMetrics latest;
   final bool isConnected;
+  final bool canRequestMetrics;
   final WidgetRef ref;
 
   const _OverviewTab({
     required this.latest,
     required this.isConnected,
+    required this.canRequestMetrics,
     required this.ref,
   });
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: () =>
-          ref.read(connectionManagerProvider).send(RivrProtocol.cmdMetrics),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    final content = SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      physics: canRequestMetrics
+          ? const AlwaysScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
             // Node & connection
             _SectionHeader('Node'),
             _InfoRow('Node ID',
@@ -246,7 +257,7 @@ class _OverviewTab extends StatelessWidget {
             _InfoRow('BLE stack errors', '${latest.bleErr}'),
             const SizedBox(height: 16),
 
-            if (isConnected)
+            if (canRequestMetrics)
               Center(
                 child: FilledButton.tonal(
                   onPressed: () => ref
@@ -255,9 +266,23 @@ class _OverviewTab extends StatelessWidget {
                   child: const Text('Refresh metrics now'),
                 ),
               ),
-          ],
-        ),
+            if (isConnected && !canRequestMetrics)
+              Text(
+                'Manual metrics refresh is only available over USB serial.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+              ),
+        ],
       ),
+    );
+
+    if (!canRequestMetrics) return content;
+
+    return RefreshIndicator(
+      onRefresh: () =>
+          ref.read(connectionManagerProvider).send(RivrProtocol.cmdMetrics),
+      child: content,
     );
   }
 }
