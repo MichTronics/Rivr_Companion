@@ -104,13 +104,13 @@ class RivrFrame {
       pktType:   bytes[3],
       flags:     bytes[4],
       ttl:       bytes[5],
-      srcId:     bd.getUint32(6, Endian.little),
-      dstId:     bd.getUint32(10, Endian.little),
-      netId:     bd.getUint16(14, Endian.little),
-      hopCount:  bytes[16],
-      seq:       bd.getUint16(17, Endian.little),
-      pktId:     bd.getUint16(19, Endian.little),
-      payload:   bytes.sublist(23, 23 + payloadLen),
+      hopCount:  bytes[6],                              // [6]   hop
+      netId:     bd.getUint16(7, Endian.little),        // [7-8] net_id
+      srcId:     bd.getUint32(9, Endian.little),        // [9-12] src_id
+      dstId:     bd.getUint32(13, Endian.little),       // [13-16] dst_id
+      seq:       bd.getUint16(17, Endian.little),       // [17-18] seq
+      pktId:     bd.getUint16(19, Endian.little),       // [19-20] pkt_id
+      payload:   bytes.sublist(23, 23 + payloadLen),    // [23..] payload
     );
   }
 
@@ -125,14 +125,14 @@ class RivrFrame {
     bytes[3] = pktType;
     bytes[4] = flags;
     bytes[5] = ttl;
-    bd.setUint32(6, srcId, Endian.little);
-    bd.setUint32(10, dstId, Endian.little);
-    bd.setUint16(14, netId, Endian.little);
-    bytes[16] = hopCount;
-    bd.setUint16(17, seq, Endian.little);
-    bd.setUint16(19, pktId, Endian.little);
-    bytes[21] = payload.length;
-    bytes[22] = 0; // reserved
+    bytes[6] = hopCount;                              // [6]   hop
+    bd.setUint16(7, netId, Endian.little);            // [7-8] net_id
+    bd.setUint32(9, srcId, Endian.little);            // [9-12] src_id
+    bd.setUint32(13, dstId, Endian.little);           // [13-16] dst_id
+    bd.setUint16(17, seq, Endian.little);             // [17-18] seq
+    bd.setUint16(19, pktId, Endian.little);           // [19-20] pkt_id
+    bytes[21] = payload.length;                       // [21] payload_len
+    bytes[22] = 0;                                    // [22] loop_guard
     bytes.setRange(23, 23 + payload.length, payload);
 
     final crc = _crc16(bytes.sublist(0, 23 + payload.length));
@@ -166,9 +166,9 @@ class RivrFrameCodec {
     if (frame == null) return null;
 
     if (frame.isChat) {
-      // PKT_CHAT payload: 7-byte header then UTF-8 text
-      if (frame.payload.length < 7) return null;
-      final text = utf8.decode(frame.payload.sublist(7), allowMalformed: true).trim();
+      // PKT_CHAT payload is raw UTF-8 text — no header prefix
+      if (frame.payload.isEmpty) return null;
+      final text = utf8.decode(frame.payload, allowMalformed: true).trim();
       if (text.isEmpty) return null;
       final srcHex = '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
       return ChatEvent(ChatMessage(
@@ -210,12 +210,8 @@ class RivrFrameCodec {
     required String text,
     int dstId = _kBroadcast,
   }) {
-    final textBytes = utf8.encode(text);
-    // PKT_CHAT payload: 7-byte header then UTF-8 text
-    // Byte layout: [0]=reserved, [1]=reserved, [2..3]=msg_seq u16 LE, [4..6]=reserved
-    final payload = Uint8List(7 + textBytes.length);
-    ByteData.sublistView(payload).setUint16(2, seq & 0xFFFF, Endian.little);
-    payload.setRange(7, 7 + textBytes.length, textBytes);
+    // PKT_CHAT payload is raw UTF-8 text — no header prefix
+    final payload = Uint8List.fromList(utf8.encode(text));
 
     return RivrFrame(
       magic:    _kMagic,
