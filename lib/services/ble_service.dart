@@ -308,9 +308,13 @@ class BleService extends RivrTransport {
   // ── Receive: binary Rivr frames ───────────────────────────────────────────
 
   void _onBytes(List<int> bytes) {
+    final packet = Uint8List.fromList(bytes);
+    _safeAddEvent(
+      RawLineEvent(RivrFrameCodec.describeFrame(packet, direction: 'RX')),
+    );
     _bleLog('rx ${bytes.length} bytes: '
         '${bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}…');
-    final event = RivrFrameCodec.parseFrame(Uint8List.fromList(bytes));
+    final event = RivrFrameCodec.parseFrame(packet);
     if (event == null) {
       _bleLog('parseFrame returned null for ${bytes.length}-byte payload',
           error: true);
@@ -332,6 +336,9 @@ class BleService extends RivrTransport {
       srcId: phoneNodeId,
       seq: _seq++,
       text: text,
+    );
+    _safeAddEvent(
+      RawLineEvent(RivrFrameCodec.describeFrame(frameBytes, direction: 'TX')),
     );
     final value = frameBytes.toList();
     try {

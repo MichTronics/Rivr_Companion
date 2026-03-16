@@ -36,17 +36,17 @@ const int _kTtlDefault = 7;
 const int _kBroadcast = 0xFFFFFFFF;
 
 // Packet type constants (§6 of the BLE integration guide).
-const int _kPktChat      = 1;
-const int _kPktBeacon    = 2;
-const int _kPktRouteReq  = 3;
-const int _kPktRouteRpl  = 4;
-const int _kPktAck       = 5;
-const int _kPktData      = 6;
-const int _kPktProgPush  = 7;
+const int _kPktChat = 1;
+const int _kPktBeacon = 2;
+const int _kPktRouteReq = 3;
+const int _kPktRouteRpl = 4;
+const int _kPktAck = 5;
+const int _kPktData = 6;
+const int _kPktProgPush = 7;
 const int _kPktTelemetry = 8;
-const int _kPktMailbox   = 9;
-const int _kPktAlert     = 10;
-const int _kPktMetrics   = 11;
+const int _kPktMailbox = 9;
+const int _kPktAlert = 10;
+const int _kPktMetrics = 11;
 
 /// A decoded binary Rivr frame (§6 of the BLE integration guide).
 class RivrFrame {
@@ -78,14 +78,16 @@ class RivrFrame {
     required this.payload,
   });
 
-  bool get isChat      => pktType == _kPktChat;
-  bool get isBeacon    => pktType == _kPktBeacon;
+  bool get isChat => pktType == _kPktChat;
+  bool get isBeacon => pktType == _kPktBeacon;
   bool get isTelemetry => pktType == _kPktTelemetry;
-  bool get isMetrics   => pktType == _kPktMetrics;
+  bool get isMetrics => pktType == _kPktMetrics;
 
   /// Decode a frame from raw bytes.  Returns null if magic or CRC is invalid.
   static RivrFrame? decode(Uint8List bytes) {
-    if (bytes.length < 25) return null; // min frame (23 header + 0 payload + 2 CRC)
+    if (bytes.length < 25) {
+      return null; // min frame (23 header + 0 payload + 2 CRC)
+    }
     final bd = ByteData.sublistView(bytes);
 
     final magic = bd.getUint16(0, Endian.little);
@@ -101,18 +103,18 @@ class RivrFrame {
     if (_crc16(crcData) != crcGot) return null;
 
     return RivrFrame(
-      magic:     magic,
-      version:   bytes[2],
-      pktType:   bytes[3],
-      flags:     bytes[4],
-      ttl:       bytes[5],
-      hopCount:  bytes[6],                              // [6]   hop
-      netId:     bd.getUint16(7, Endian.little),        // [7-8] net_id
-      srcId:     bd.getUint32(9, Endian.little),        // [9-12] src_id
-      dstId:     bd.getUint32(13, Endian.little),       // [13-16] dst_id
-      seq:       bd.getUint16(17, Endian.little),       // [17-18] seq
-      pktId:     bd.getUint16(19, Endian.little),       // [19-20] pkt_id
-      payload:   bytes.sublist(23, 23 + payloadLen),    // [23..] payload
+      magic: magic,
+      version: bytes[2],
+      pktType: bytes[3],
+      flags: bytes[4],
+      ttl: bytes[5],
+      hopCount: bytes[6], // [6]   hop
+      netId: bd.getUint16(7, Endian.little), // [7-8] net_id
+      srcId: bd.getUint32(9, Endian.little), // [9-12] src_id
+      dstId: bd.getUint32(13, Endian.little), // [13-16] dst_id
+      seq: bd.getUint16(17, Endian.little), // [17-18] seq
+      pktId: bd.getUint16(19, Endian.little), // [19-20] pkt_id
+      payload: bytes.sublist(23, 23 + payloadLen), // [23..] payload
     );
   }
 
@@ -127,14 +129,14 @@ class RivrFrame {
     bytes[3] = pktType;
     bytes[4] = flags;
     bytes[5] = ttl;
-    bytes[6] = hopCount;                              // [6]   hop
-    bd.setUint16(7, netId, Endian.little);            // [7-8] net_id
-    bd.setUint32(9, srcId, Endian.little);            // [9-12] src_id
-    bd.setUint32(13, dstId, Endian.little);           // [13-16] dst_id
-    bd.setUint16(17, seq, Endian.little);             // [17-18] seq
-    bd.setUint16(19, pktId, Endian.little);           // [19-20] pkt_id
-    bytes[21] = payload.length;                       // [21] payload_len
-    bytes[22] = 0;                                    // [22] loop_guard
+    bytes[6] = hopCount; // [6]   hop
+    bd.setUint16(7, netId, Endian.little); // [7-8] net_id
+    bd.setUint32(9, srcId, Endian.little); // [9-12] src_id
+    bd.setUint32(13, dstId, Endian.little); // [13-16] dst_id
+    bd.setUint16(17, seq, Endian.little); // [17-18] seq
+    bd.setUint16(19, pktId, Endian.little); // [19-20] pkt_id
+    bytes[21] = payload.length; // [21] payload_len
+    bytes[22] = 0; // [22] loop_guard
     bytes.setRange(23, 23 + payload.length, payload);
 
     final crc = _crc16(bytes.sublist(0, 23 + payload.length));
@@ -161,6 +163,27 @@ class RivrFrame {
 
 /// Codec for building and parsing binary frames over BLE.
 class RivrFrameCodec {
+  static String describeFrame(Uint8List bytes, {required String direction}) {
+    final frame = RivrFrame.decode(bytes);
+    final hex = bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+        .join(' ');
+
+    if (frame == null) {
+      return '$direction BLE_FRAME invalid len=${bytes.length} hex=$hex';
+    }
+
+    return '$direction BLE_FRAME'
+        ' type=${frame.pktType}'
+        ' src=0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}'
+        ' dst=0x${frame.dstId.toRadixString(16).toUpperCase().padLeft(8, '0')}'
+        ' seq=${frame.seq}'
+        ' pkt=${frame.pktId}'
+        ' hop=${frame.hopCount}'
+        ' len=${frame.payload.length}'
+        ' hex=$hex';
+  }
+
   /// Parse a received BLE notification (one complete binary frame) into a
   /// [RivrEvent], or return null if invalid / unrecognised.
   static RivrEvent? parseFrame(Uint8List bytes) {
@@ -172,7 +195,8 @@ class RivrFrameCodec {
       if (frame.payload.isEmpty) return null;
       final text = utf8.decode(frame.payload, allowMalformed: true).trim();
       if (text.isEmpty) return null;
-      final srcHex = '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+      final srcHex =
+          '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
       return ChatEvent(ChatMessage(
         id: '${DateTime.now().microsecondsSinceEpoch}',
         text: text,
@@ -222,37 +246,38 @@ class RivrFrameCodec {
       if (frame.payload.length < 48) return null;
       final pd = ByteData.sublistView(frame.payload);
       return MetricsEvent(RivrMetrics(
-        nodeId:        pd.getUint32(0,  Endian.little),
-        dcPct:         frame.payload[4],
-        qDepth:        frame.payload[5],
-        txTotal:       pd.getUint32(6,  Endian.little),
-        rxTotal:       pd.getUint32(10, Endian.little),
-        routeCache:    frame.payload[14],
-        lnkCnt:        frame.payload[15],
-        lnkBest:       frame.payload[16],
-        lnkRssi:       pd.getInt8(17),
-        lnkLoss:       frame.payload[18],
-        relayDensity:  frame.payload[19],
-        relaySkip:     pd.getUint32(20, Endian.little),
-        rxDecodeFail:  pd.getUint32(24, Endian.little),
-        rxDedupeDrop:  pd.getUint32(28, Endian.little),
-        bleConn:       pd.getUint32(32, Endian.little),
-        bleRx:         pd.getUint32(36, Endian.little),
-        bleTx:         pd.getUint32(40, Endian.little),
-        bleErr:        pd.getUint32(44, Endian.little),
+        nodeId: pd.getUint32(0, Endian.little),
+        dcPct: frame.payload[4],
+        qDepth: frame.payload[5],
+        txTotal: pd.getUint32(6, Endian.little),
+        rxTotal: pd.getUint32(10, Endian.little),
+        routeCache: frame.payload[14],
+        lnkCnt: frame.payload[15],
+        lnkBest: frame.payload[16],
+        lnkRssi: pd.getInt8(17),
+        lnkLoss: frame.payload[18],
+        relayDensity: frame.payload[19],
+        relaySkip: pd.getUint32(20, Endian.little),
+        rxDecodeFail: pd.getUint32(24, Endian.little),
+        rxDedupeDrop: pd.getUint32(28, Endian.little),
+        bleConn: pd.getUint32(32, Endian.little),
+        bleRx: pd.getUint32(36, Endian.little),
+        bleTx: pd.getUint32(40, Endian.little),
+        bleErr: pd.getUint32(44, Endian.little),
         // fields not in the compact BLE payload—excluded to save space:
-        relayDelay:    0, relayFwd:  0, relaySel:      0, relayCan:      0,
-        rxTtlDrop:     0, rxBadType: 0, rxBadHop:      0,
-        txQueueFull:   0, dutyBlocked: 0, noRoute:     0, loopDetectDrop: 0,
+        relayDelay: 0, relayFwd: 0, relaySel: 0, relayCan: 0,
+        rxTtlDrop: 0, rxBadType: 0, rxBadHop: 0,
+        txQueueFull: 0, dutyBlocked: 0, noRoute: 0, loopDetectDrop: 0,
         radioHardReset: 0, radioTxFail: 0, radioCrcFail: 0,
         routeCacheHit: 0, routeCacheMiss: 0,
         ackTx: 0, ackRx: 0, retryAttempt: 0, retrySuccess: 0, retryFail: 0,
-        collectedAt:   DateTime.now(),
+        collectedAt: DateTime.now(),
       ));
     }
 
     // Return as raw for other types (telemetry, routing, alert, etc.)
-    return RawLineEvent('BLE_FRAME:type=${frame.pktType},src=0x${frame.srcId.toRadixString(16).toUpperCase()}');
+    return RawLineEvent(
+        'BLE_FRAME:type=${frame.pktType},src=0x${frame.srcId.toRadixString(16).toUpperCase()}');
   }
 
   /// Build a PKT_CHAT frame for sending via BLE.
@@ -269,18 +294,18 @@ class RivrFrameCodec {
     final payload = Uint8List.fromList(utf8.encode(text));
 
     return RivrFrame(
-      magic:    _kMagic,
-      version:  _kVersion,
-      pktType:  _kPktChat,
-      flags:    0,
-      ttl:      _kTtlDefault,
-      srcId:    srcId,
-      dstId:    dstId,
-      netId:    0,
+      magic: _kMagic,
+      version: _kVersion,
+      pktType: _kPktChat,
+      flags: 0,
+      ttl: _kTtlDefault,
+      srcId: srcId,
+      dstId: dstId,
+      netId: 0,
       hopCount: 0,
-      seq:      seq & 0xFFFF,
-      pktId:    0,
-      payload:  payload,
+      seq: seq & 0xFFFF,
+      pktId: 0,
+      payload: payload,
     ).encode();
   }
 
@@ -303,9 +328,8 @@ class RivrProtocol {
 
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
-  static final _chatRxPattern = RegExp(
-      r'\[CHAT\]\[([0-9A-Fa-f]+)\]:\s*(.+)',
-      caseSensitive: false);
+  static final _chatRxPattern =
+      RegExp(r'\[CHAT\]\[([0-9A-Fa-f]+)\]:\s*(.+)', caseSensitive: false);
 
   // ── Beacon / node info in ntable output ───────────────────────────────────
   // Example:  0x1A2B3C4D  ALICE    1  -87  +8  72  15s  123
@@ -366,7 +390,8 @@ class RivrProtocol {
       final nodeId = _parseHex(srcStr) ?? 0;
       final text = (m['text'] as String? ?? '').trim();
       if (text.isEmpty) return null;
-      final name = '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+      final name =
+          '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
       final msg = ChatMessage(
         id: '${DateTime.now().microsecondsSinceEpoch}',
         text: text,
@@ -383,9 +408,8 @@ class RivrProtocol {
 
   // ── Hex parser: accepts '0xDEADBEEF' or 'DEADBEEF' ────────────────────────
   static int? _parseHex(String s) {
-    final stripped = s.startsWith('0x') || s.startsWith('0X')
-        ? s.substring(2)
-        : s;
+    final stripped =
+        s.startsWith('0x') || s.startsWith('0X') ? s.substring(2) : s;
     return int.tryParse(stripped, radix: 16);
   }
 
@@ -394,45 +418,45 @@ class RivrProtocol {
     try {
       final m = jsonDecode(json) as Map<String, dynamic>;
       return RivrMetrics(
-        nodeId:          _i(m, 'node_id'),       // "node_id"
-        dcPct:           _i(m, 'dc_pct'),        // "dc_pct"
-        qDepth:          _i(m, 'q_depth'),       // "q_depth"
-        txTotal:         _i(m, 'tx_total'),      // "tx_total"
-        rxTotal:         _i(m, 'rx_total'),      // "rx_total"
-        routeCache:      _i(m, 'route_cache'),   // "route_cache"
-        lnkCnt:          _i(m, 'lnk_cnt'),      // "lnk_cnt"
-        lnkBest:         _i(m, 'lnk_best'),     // "lnk_best"
-        lnkRssi:         _i(m, 'lnk_rssi'),     // "lnk_rssi"
-        lnkLoss:         _i(m, 'lnk_loss'),     // "lnk_loss"
-        relaySkip:       _i(m, 'relay_skip'),    // "relay_skip"
-        relayDelay:      _i(m, 'relay_delay'),   // "relay_delay"
-        relayDensity:    _i(m, 'relay_density'), // "relay_density"
-        relayFwd:        _i(m, 'relay_fwd'),     // "relay_fwd"
-        relaySel:        _i(m, 'relay_sel'),     // "relay_sel"
-        relayCan:        _i(m, 'relay_can'),     // "relay_can"
-        rxDecodeFail:    _i(m, 'rx_fail'),       // "rx_fail"
-        rxDedupeDrop:    _i(m, 'rx_dup'),        // "rx_dup"
-        rxTtlDrop:       _i(m, 'rx_ttl'),        // "rx_ttl"
-        rxBadType:       _i(m, 'rx_bad_type'),   // "rx_bad_type"
-        rxBadHop:        _i(m, 'rx_bad_hop'),    // "rx_bad_hop"
-        txQueueFull:     _i(m, 'tx_full'),       // "tx_full"
-        dutyBlocked:     _i(m, 'dc_blk'),        // "dc_blk"
-        noRoute:         _i(m, 'no_route'),      // "no_route"
-        loopDetectDrop:  _i(m, 'loop_drop_total'), // "loop_drop_total"
-        radioHardReset:  _i(m, 'rad_rst'),       // "rad_rst"
-        radioTxFail:     _i(m, 'rad_txfail'),    // "rad_txfail"
-        radioCrcFail:    _i(m, 'rad_crc'),       // "rad_crc"
-        routeCacheHit:   _i(m, 'rc_hit'),        // "rc_hit"
-        routeCacheMiss:  _i(m, 'rc_miss'),       // "rc_miss"
-        ackTx:           _i(m, 'ack_tx'),        // "ack_tx"
-        ackRx:           _i(m, 'ack_rx'),        // "ack_rx"
-        retryAttempt:    _i(m, 'retry_att'),     // "retry_att"
-        retrySuccess:    _i(m, 'retry_ok'),      // "retry_ok"
-        retryFail:       _i(m, 'retry_fail'),    // "retry_fail"
-        bleConn:         _i(m, 'ble_conn'),      // "ble_conn"
-        bleRx:           _i(m, 'ble_rx'),        // "ble_rx"
-        bleTx:           _i(m, 'ble_tx'),        // "ble_tx"
-        bleErr:          _i(m, 'ble_err'),       // "ble_err"
+        nodeId: _i(m, 'node_id'), // "node_id"
+        dcPct: _i(m, 'dc_pct'), // "dc_pct"
+        qDepth: _i(m, 'q_depth'), // "q_depth"
+        txTotal: _i(m, 'tx_total'), // "tx_total"
+        rxTotal: _i(m, 'rx_total'), // "rx_total"
+        routeCache: _i(m, 'route_cache'), // "route_cache"
+        lnkCnt: _i(m, 'lnk_cnt'), // "lnk_cnt"
+        lnkBest: _i(m, 'lnk_best'), // "lnk_best"
+        lnkRssi: _i(m, 'lnk_rssi'), // "lnk_rssi"
+        lnkLoss: _i(m, 'lnk_loss'), // "lnk_loss"
+        relaySkip: _i(m, 'relay_skip'), // "relay_skip"
+        relayDelay: _i(m, 'relay_delay'), // "relay_delay"
+        relayDensity: _i(m, 'relay_density'), // "relay_density"
+        relayFwd: _i(m, 'relay_fwd'), // "relay_fwd"
+        relaySel: _i(m, 'relay_sel'), // "relay_sel"
+        relayCan: _i(m, 'relay_can'), // "relay_can"
+        rxDecodeFail: _i(m, 'rx_fail'), // "rx_fail"
+        rxDedupeDrop: _i(m, 'rx_dup'), // "rx_dup"
+        rxTtlDrop: _i(m, 'rx_ttl'), // "rx_ttl"
+        rxBadType: _i(m, 'rx_bad_type'), // "rx_bad_type"
+        rxBadHop: _i(m, 'rx_bad_hop'), // "rx_bad_hop"
+        txQueueFull: _i(m, 'tx_full'), // "tx_full"
+        dutyBlocked: _i(m, 'dc_blk'), // "dc_blk"
+        noRoute: _i(m, 'no_route'), // "no_route"
+        loopDetectDrop: _i(m, 'loop_drop_total'), // "loop_drop_total"
+        radioHardReset: _i(m, 'rad_rst'), // "rad_rst"
+        radioTxFail: _i(m, 'rad_txfail'), // "rad_txfail"
+        radioCrcFail: _i(m, 'rad_crc'), // "rad_crc"
+        routeCacheHit: _i(m, 'rc_hit'), // "rc_hit"
+        routeCacheMiss: _i(m, 'rc_miss'), // "rc_miss"
+        ackTx: _i(m, 'ack_tx'), // "ack_tx"
+        ackRx: _i(m, 'ack_rx'), // "ack_rx"
+        retryAttempt: _i(m, 'retry_att'), // "retry_att"
+        retrySuccess: _i(m, 'retry_ok'), // "retry_ok"
+        retryFail: _i(m, 'retry_fail'), // "retry_fail"
+        bleConn: _i(m, 'ble_conn'), // "ble_conn"
+        bleRx: _i(m, 'ble_rx'), // "ble_rx"
+        bleTx: _i(m, 'ble_tx'), // "ble_tx"
+        bleErr: _i(m, 'ble_err'), // "ble_err"
         collectedAt: DateTime.now(),
       );
     } catch (_) {
