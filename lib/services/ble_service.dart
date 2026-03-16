@@ -41,6 +41,7 @@ class NusUuids {
 ///   • Exponential reconnect backoff on unexpected disconnect.
 class BleService extends RivrTransport {
   final int phoneNodeId;
+  final String? blePin;
   int _seq = 0;
 
   final _stateCtrl = StreamController<RivrConnState>.broadcast();
@@ -60,11 +61,12 @@ class BleService extends RivrTransport {
   bool _disposed = false;
   bool _intentionalDisconnect = false;
   bool _wasConnected = false;
+  bool _bondPinInjectInFlight = false;
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   static const _reconnectDelays = [1, 2, 5];
 
-  BleService({required this.phoneNodeId});
+  BleService({required this.phoneNodeId, this.blePin});
 
   @override
   Stream<RivrConnState> get stateStream => _stateCtrl.stream;
@@ -419,7 +421,12 @@ class BleService extends RivrTransport {
     if (!Platform.isAndroid) return;
     await _bondSub?.cancel();
     _bondSub = device.bondState.listen(
-      (state) => _bleLog('bondState → $state'),
+      (state) {
+        _bleLog('bondState → $state');
+        if (state == BluetoothBondState.bonding) {
+          unawaited(_injectConfiguredPin(device));
+        }
+      },
       onError: (Object err) =>
           _bleLog('bondState stream error: $err', error: true),
     );
@@ -463,6 +470,25 @@ class BleService extends RivrTransport {
         (msg.contains('bmbondstateenum.none') ||
             msg.contains('returned false') ||
             msg.contains('failed to create bond'));
+  }
+
+  Future<void> _injectConfiguredPin(BluetoothDevice device) async {
+    if (!Platform.isAndroid || blePin == null || blePin!.isEmpty) return;
+    if (_bondPinInjectInFlight) return;
+    _bondPinInjectInFlight = true;
+    try {
+      _bleLog('bonding: injecting configured BLE PIN');
+      await device.createBond(pin: Uint8List.fromList(blePin!.codeUnits));
+    } catch (e) {
+      if (_isCreateBondRefusal(e)) {
+        _bleLog(
+            'bonding: Android refused explicit PIN injection; waiting anyway');
+      } else {
+        _bleLog('bonding: PIN injection failed: $e', error: true);
+      }
+    } finally {
+      _bondPinInjectInFlight = false;
+    }
   }
 
   bool _isAuthError(Object error) {
