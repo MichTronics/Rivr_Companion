@@ -52,6 +52,7 @@ class BleService extends RivrTransport {
 
   StreamSubscription<List<int>>? _notifySub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
+  StreamSubscription<BluetoothBondState>? _bondSub;
   StreamSubscription<List<ScanResult>>? _scanSub;
   StreamSubscription<bool>? _isScanSub;
 
@@ -156,7 +157,7 @@ class BleService extends RivrTransport {
         }
       });
 
-      await _startBonding(device);
+      await _startBondMonitoring(device);
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
       // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
@@ -219,8 +220,10 @@ class BleService extends RivrTransport {
 
   void _handleUnexpectedDisconnect(String deviceId) {
     _connSub?.cancel();
+    _bondSub?.cancel();
     _notifySub?.cancel();
     _connSub = null;
+    _bondSub = null;
     _notifySub = null;
     _writeChar = null;
     _notifyChar = null;
@@ -270,9 +273,7 @@ class BleService extends RivrTransport {
       if (!_isAuthError(e)) rethrow;
       _bleLog(
           'setNotifyValue: authentication required — triggering OS bond dialog');
-      // createBond() shows the pairing dialog and completes when BONDED
-      // (or throws on failure / user cancellation).
-      await _bondDevice(device);
+      await _ensureBonded(device, 'setNotifyValue');
       // Retry CCCD subscription on the now-authenticated encrypted link.
       await char.setNotifyValue(true);
     }
@@ -316,7 +317,7 @@ class BleService extends RivrTransport {
       if (!_isAuthError(e)) rethrow;
       _bleLog(
           'writeCharacteristic: authentication required — triggering OS bond dialog');
-      await _bondDevice(_device!);
+      await _ensureBonded(_device!, 'writeCharacteristic');
       await _writeChar!.write(
         value,
         withoutResponse: _writeChar!.properties.writeWithoutResponse,
@@ -335,11 +336,13 @@ class BleService extends RivrTransport {
     await _isScanSub?.cancel();
     await _notifySub?.cancel();
     await _connSub?.cancel();
+    await _bondSub?.cancel();
     await _device?.disconnect();
     _scanSub = null;
     _isScanSub = null;
     _notifySub = null;
     _connSub = null;
+    _bondSub = null;
     _device = null;
     _writeChar = null;
     _notifyChar = null;
@@ -362,6 +365,7 @@ class BleService extends RivrTransport {
     await _isScanSub?.cancel();
     await _notifySub?.cancel();
     await _connSub?.cancel();
+    await _bondSub?.cancel();
     await _device?.disconnect();
   }
 
@@ -411,14 +415,54 @@ class BleService extends RivrTransport {
     _eventCtrl.add(event);
   }
 
-  Future<void> _startBonding(BluetoothDevice device) async {
+  Future<void> _startBondMonitoring(BluetoothDevice device) async {
     if (!Platform.isAndroid) return;
-    _bleLog('connect: proactively starting Android bond flow');
-    await device.createBond();
+    await _bondSub?.cancel();
+    _bondSub = device.bondState.listen(
+      (state) => _bleLog('bondState → $state'),
+      onError: (Object err) =>
+          _bleLog('bondState stream error: $err', error: true),
+    );
   }
 
-  Future<void> _bondDevice(BluetoothDevice device) async {
-    await device.createBond();
+  Future<void> _ensureBonded(BluetoothDevice device, String reason) async {
+    if (!Platform.isAndroid) return;
+    final current = await device.bondState.first;
+    if (current == BluetoothBondState.bonded) return;
+
+    try {
+      await device.createBond();
+    } catch (e) {
+      if (!_isCreateBondRefusal(e)) rethrow;
+      _bleLog(
+          '$reason: createBond() refused by Android; waiting for OS-driven pairing');
+    }
+
+    final bonded = await _waitForBonded(device);
+    if (!bonded) {
+      throw Exception('BLE pairing did not complete');
+    }
+  }
+
+  Future<bool> _waitForBonded(BluetoothDevice device) async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final state = await device.bondState
+          .firstWhere((s) => s == BluetoothBondState.bonded)
+          .timeout(const Duration(seconds: 20));
+      return state == BluetoothBondState.bonded;
+    } on TimeoutException {
+      _bleLog('bonding timed out waiting for BONDED state', error: true);
+      return false;
+    }
+  }
+
+  bool _isCreateBondRefusal(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('createbond') &&
+        (msg.contains('bmbondstateenum.none') ||
+            msg.contains('returned false') ||
+            msg.contains('failed to create bond'));
   }
 
   bool _isAuthError(Object error) {
