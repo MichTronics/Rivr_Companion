@@ -78,13 +78,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   isConnected ? Icons.link : Icons.link_off,
                   color: isConnected ? Colors.green : null,
                 ),
-                title: Text(isConnected ? 'Connected to $deviceName' : 'Not connected'),
+                title: Text(
+                    isConnected ? 'Connected to $deviceName' : 'Not connected'),
                 subtitle: const Text('Tap to connect or disconnect'),
                 onTap: isConnected ? _disconnect : _showConnectSheet,
                 trailing: isConnected
                     ? TextButton(
-                        onPressed: _disconnect,
-                        child: const Text('Disconnect'))
+                        onPressed: _disconnect, child: const Text('Disconnect'))
                     : FilledButton(
                         onPressed: _showConnectSheet,
                         child: const Text('Connect')),
@@ -130,8 +130,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: const Text('Advanced mode'),
                 subtitle: const Text('Shows additional diagnostic controls'),
                 value: settings.advancedMode,
-                onChanged: (v) =>
-                    ref.read(settingsNotifierProvider.notifier).setAdvancedMode(v),
+                onChanged: (v) => ref
+                    .read(settingsNotifierProvider.notifier)
+                    .setAdvancedMode(v),
               ),
               if (settings.advancedMode) ...[
                 _BaudRateTile(currentRate: settings.lastUsbBaudRate),
@@ -237,7 +238,8 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
   void initState() {
     super.initState();
     final lastType = ref.read(settingsProvider).lastConnectionType;
-    _mode = lastType == ConnectionType.usb ? _ConnectMode.usb : _ConnectMode.ble;
+    _mode =
+        lastType == ConnectionType.usb ? _ConnectMode.usb : _ConnectMode.ble;
   }
 
   @override
@@ -247,13 +249,14 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       initialChildSize: 0.6,
       maxChildSize: 0.9,
       builder: (ctx, scrollCtrl) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Column(
           children: [
             const SizedBox(height: 12),
             Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.outlineVariant,
                 borderRadius: BorderRadius.circular(2),
@@ -311,7 +314,9 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
                         final isBle = line.startsWith('BLE_SCAN|');
                         final parts = line.split(isBle ? '|' : ':');
                         final id = parts.length > 1 ? parts[1] : '';
-                        final name = parts.length > 2 ? parts.sublist(2).join(isBle ? '|' : ':') : id;
+                        final name = parts.length > 2
+                            ? parts.sublist(2).join(isBle ? '|' : ':')
+                            : id;
                         return ListTile(
                           leading: Icon(_mode == _ConnectMode.ble
                               ? Icons.bluetooth
@@ -357,7 +362,8 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
           : SerialService(baudRate: settings.lastUsbBaudRate);
       await ref.read(connectionManagerProvider).useTransport(service);
       await _scanSub?.cancel();
-      _scanSub = ref.read(connectionManagerProvider).eventStream.listen((event) {
+      _scanSub =
+          ref.read(connectionManagerProvider).eventStream.listen((event) {
         if (!mounted) return;
         if (event is RawLineEvent) {
           if (event.line.startsWith('BLE_SCAN|') ||
@@ -409,8 +415,10 @@ class _SettingsSection extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
           child: Text(
             title,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: Theme.of(context).colorScheme.primary),
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: Theme.of(context).colorScheme.primary),
           ),
         ),
         ...children,

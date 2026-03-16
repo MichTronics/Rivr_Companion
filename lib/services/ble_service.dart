@@ -156,6 +156,8 @@ class BleService extends RivrTransport {
         }
       });
 
+      await _startBonding(device);
+
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
       // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
       // requestMtu() is called before the GATT bearer is fully initialised.
@@ -270,7 +272,7 @@ class BleService extends RivrTransport {
           'setNotifyValue: authentication required — triggering OS bond dialog');
       // createBond() shows the pairing dialog and completes when BONDED
       // (or throws on failure / user cancellation).
-      await device.createBond();
+      await _bondDevice(device);
       // Retry CCCD subscription on the now-authenticated encrypted link.
       await char.setNotifyValue(true);
     }
@@ -314,7 +316,7 @@ class BleService extends RivrTransport {
       if (!_isAuthError(e)) rethrow;
       _bleLog(
           'writeCharacteristic: authentication required — triggering OS bond dialog');
-      await _device!.createBond();
+      await _bondDevice(_device!);
       await _writeChar!.write(
         value,
         withoutResponse: _writeChar!.properties.writeWithoutResponse,
@@ -407,6 +409,16 @@ class BleService extends RivrTransport {
   void _safeAddEvent(RivrEvent event) {
     if (_disposed || _eventCtrl.isClosed) return;
     _eventCtrl.add(event);
+  }
+
+  Future<void> _startBonding(BluetoothDevice device) async {
+    if (!Platform.isAndroid) return;
+    _bleLog('connect: proactively starting Android bond flow');
+    await device.createBond();
+  }
+
+  Future<void> _bondDevice(BluetoothDevice device) async {
+    await device.createBond();
   }
 
   bool _isAuthError(Object error) {
