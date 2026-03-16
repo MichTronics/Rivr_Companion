@@ -158,6 +158,12 @@ class BleService extends RivrTransport {
       });
 
       await _startBondMonitoring(device);
+      final initialBondResult =
+          await _waitForBondingToFinishIfActive(device, 'connect');
+      if (initialBondResult == false) {
+        throw Exception(
+            'BLE pairing failed. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+      }
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
       // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
@@ -270,12 +276,32 @@ class BleService extends RivrTransport {
     try {
       await char.setNotifyValue(true);
     } catch (e) {
-      if (!_isAuthError(e)) rethrow;
-      _bleLog(
-          'setNotifyValue: authentication required — triggering OS bond dialog');
-      await _ensureBonded(device, 'setNotifyValue');
-      // Retry CCCD subscription on the now-authenticated encrypted link.
-      await char.setNotifyValue(true);
+      if (_isAuthError(e)) {
+        _bleLog(
+            'setNotifyValue: authentication required — triggering OS bond dialog');
+        await _ensureBonded(device, 'setNotifyValue');
+        // Retry CCCD subscription on the now-authenticated encrypted link.
+        await char.setNotifyValue(true);
+        return;
+      }
+
+      if (_isTimeoutError(e)) {
+        _bleLog(
+            'setNotifyValue: timed out while bonding may still be in progress');
+        final settled =
+            await _waitForBondingToFinishIfActive(device, 'setNotifyValue');
+        if (settled == true) {
+          await Future.delayed(const Duration(milliseconds: 300));
+          await char.setNotifyValue(true);
+          return;
+        }
+        if (settled == false) {
+          throw Exception(
+              'BLE pairing failed. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+        }
+      }
+
+      rethrow;
     }
   }
 
@@ -429,6 +455,12 @@ class BleService extends RivrTransport {
     if (!Platform.isAndroid) return;
     final current = await device.bondState.first;
     if (current == BluetoothBondState.bonded) return;
+    if (current == BluetoothBondState.bonding) {
+      final settled = await _waitForBondingToFinishIfActive(device, reason);
+      if (settled == true) return;
+      throw Exception(
+          'BLE pairing did not complete. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+    }
 
     try {
       await device.createBond();
@@ -442,6 +474,37 @@ class BleService extends RivrTransport {
     if (!bonded) {
       throw Exception(
           'BLE pairing did not complete. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+    }
+  }
+
+  Future<bool?> _waitForBondingToFinishIfActive(
+      BluetoothDevice device, String reason) async {
+    if (!Platform.isAndroid) return true;
+
+    final current = await _currentBondState(device);
+    if (current == BluetoothBondState.bonded) return true;
+    if (current != BluetoothBondState.bonding) return null;
+
+    _bleLog('$reason: waiting for ongoing bonding to finish');
+    try {
+      final settled = await device.bondState
+          .firstWhere((s) => s != BluetoothBondState.bonding)
+          .timeout(const Duration(seconds: 20));
+      _bleLog('$reason: bonding settled as $settled');
+      return settled == BluetoothBondState.bonded;
+    } on TimeoutException {
+      _bleLog('$reason: bonding did not settle before timeout', error: true);
+      return false;
+    }
+  }
+
+  Future<BluetoothBondState?> _currentBondState(BluetoothDevice device) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await device.bondState.first
+          .timeout(const Duration(milliseconds: 1500));
+    } on TimeoutException {
+      return null;
     }
   }
 
@@ -464,6 +527,11 @@ class BleService extends RivrTransport {
         (msg.contains('bmbondstateenum.none') ||
             msg.contains('returned false') ||
             msg.contains('failed to create bond'));
+  }
+
+  bool _isTimeoutError(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('timed out') || msg.contains('timeout');
   }
 
   bool _isAuthError(Object error) {
