@@ -33,7 +33,7 @@ class RawLineEvent extends RivrEvent {
 const int _kMagic = 0x5256; // 'RV' little-endian
 const int _kVersion = 1;
 const int _kTtlDefault = 7;
-const int _kBroadcast = 0xFFFFFFFF;
+const int _kBroadcast = 0;
 
 // Packet type constants (§6 of the BLE integration guide).
 const int _kPktChat = 1;
@@ -304,7 +304,7 @@ class RivrFrameCodec {
       netId: 0,
       hopCount: 0,
       seq: seq & 0xFFFF,
-      pktId: 0,
+      pktId: seq & 0xFFFF,
       payload: payload,
     ).encode();
   }
