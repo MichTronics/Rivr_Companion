@@ -160,6 +160,7 @@ class BleService extends RivrTransport {
       });
 
       await _startBondMonitoring(device);
+      await _awaitInitialBonding(device);
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
       // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
@@ -451,6 +452,16 @@ class BleService extends RivrTransport {
     }
   }
 
+  Future<void> _awaitInitialBonding(BluetoothDevice device) async {
+    if (!Platform.isAndroid || blePin == null || blePin!.isEmpty) return;
+
+    final bonded = await _waitForBondResult(device);
+    if (!bonded) {
+      throw Exception(
+          'BLE pairing failed. Check that the node PIN matches the one you entered.');
+    }
+  }
+
   Future<bool> _waitForBonded(BluetoothDevice device) async {
     if (!Platform.isAndroid) return true;
     try {
@@ -461,6 +472,39 @@ class BleService extends RivrTransport {
     } on TimeoutException {
       _bleLog('bonding timed out waiting for BONDED state', error: true);
       return false;
+    }
+  }
+
+  Future<bool> _waitForBondResult(BluetoothDevice device) async {
+    if (!Platform.isAndroid) return true;
+
+    final completer = Completer<bool>();
+    var sawBonding = false;
+
+    late final StreamSubscription<BluetoothBondState> sub;
+    sub = device.bondState.listen((state) {
+      if (state == BluetoothBondState.bonding) {
+        sawBonding = true;
+        return;
+      }
+      if (state == BluetoothBondState.bonded && !completer.isCompleted) {
+        completer.complete(true);
+        return;
+      }
+      if (state == BluetoothBondState.none &&
+          sawBonding &&
+          !completer.isCompleted) {
+        completer.complete(false);
+      }
+    });
+
+    try {
+      return await completer.future.timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      _bleLog('bonding timed out waiting for a final bond result', error: true);
+      return false;
+    } finally {
+      await sub.cancel();
     }
   }
 
