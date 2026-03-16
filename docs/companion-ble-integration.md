@@ -310,8 +310,8 @@ during an active window and inject frames into the mesh.  This is intentional fo
 treat the BLE interface as a local physical-proximity trust boundary, equivalent to plugging in
 a serial cable.
 
-A future version will add NimBLE SM pairing (passkey or OOB).  The API will expose a
-`RIVR_BLE_SECURITY` config flag when pairing is implemented.
+Current firmware supports optional LE Secure Connections pairing with passkey bonding when
+`RIVR_BLE_PASSKEY != 0`. Open BLE builds remain possible with `RIVR_BLE_PASSKEY=0`.
 
 ---
 
@@ -407,9 +407,9 @@ support (`flutter_reactive_ble` does not support Windows as of 2026).
 
 | Limitation | Detail |
 |---|---|
-| **One client at a time** | `CONFIG_BT_NIMBLE_MAX_CONNECTIONS = 1`. A second phone cannot connect while one is already connected. |
+| **One client at a time** | Rivr currently tracks a single active BLE connection. A second phone cannot connect while one is already connected. |
 | **No fragmentation** | Each BLE write / notify is exactly one complete Rivr frame. Frames > (`mtu - 3`) cannot be carried without MTU negotiation. |
 | **No encryption** | BLE traffic is plaintext. See Section 10. |
 | **Activation window** | BLE is not always on. See Section 4. |
 | **No phone↔phone relay** | Frames injected via BLE are processed by the connected node only; they do not bypass the node's relay policy. A PKT_CHAT written by the phone is subject to the same duty-cycle and relay rules as any LoRa frame. |
-| **ESP32-S3 BLE stability** | Heltec V3 and LilyGo T3-S3 use ESP32-S3. NimBLE on ESP32-S3 with IDF 5.x is stable but has less community testing than ESP32 classic. Report regressions. |
+| **ESP32-S3 BLE stability** | Heltec V3 and LilyGo T3-S3 use ESP32-S3. BLE on ESP32-S3 with IDF 5.x has less community testing than ESP32 classic. Report regressions. |
