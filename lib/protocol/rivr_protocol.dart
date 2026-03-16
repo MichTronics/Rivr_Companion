@@ -163,6 +163,9 @@ class RivrFrame {
 
 /// Codec for building and parsing binary frames over BLE.
 class RivrFrameCodec {
+  static const int _kLegacyBleMetricsLen = 48;
+  static const int _kFullBleMetricsLen = 132;
+
   static String describeFrame(Uint8List bytes, {required String direction}) {
     final frame = RivrFrame.decode(bytes);
     final hex = bytes
@@ -222,29 +225,58 @@ class RivrFrameCodec {
       return NodeEvent(node);
     }
 
-    // PKT_METRICS: compact 48-byte binary metrics snapshot (firmware pushes every 5 s)
+    // PKT_METRICS: BLE binary metrics snapshot (firmware pushes every 5 s)
     if (frame.isMetrics) {
-      // Payload layout (all little-endian, packed struct, 48 bytes):
-      // [0-3]   node_id         u32
-      // [4]     dc_pct          u8
-      // [5]     q_depth         u8
-      // [6-9]   tx_total        u32
-      // [10-13] rx_total        u32
-      // [14]    route_cache     u8
-      // [15]    lnk_cnt         u8
-      // [16]    lnk_best        u8
-      // [17]    lnk_rssi        i8
-      // [18]    lnk_loss        u8
-      // [19]    relay_density   u8
-      // [20-23] relay_skip      u32
-      // [24-27] rx_fail         u32
-      // [28-31] rx_dup          u32
-      // [32-35] ble_conn        u32
-      // [36-39] ble_rx          u32
-      // [40-43] ble_tx          u32
-      // [44-47] ble_err         u32
-      if (frame.payload.length < 48) return null;
+      // Backward-compatible parser:
+      // legacy payload: 48 bytes
+      // full payload:   132 bytes
+      if (frame.payload.length < _kLegacyBleMetricsLen) return null;
       final pd = ByteData.sublistView(frame.payload);
+      if (frame.payload.length >= _kFullBleMetricsLen) {
+        return MetricsEvent(RivrMetrics(
+          nodeId: pd.getUint32(0, Endian.little),
+          dcPct: frame.payload[4],
+          qDepth: frame.payload[5],
+          txTotal: pd.getUint32(6, Endian.little),
+          rxTotal: pd.getUint32(10, Endian.little),
+          routeCache: frame.payload[14],
+          lnkCnt: frame.payload[15],
+          lnkBest: frame.payload[16],
+          lnkRssi: pd.getInt8(17),
+          lnkLoss: frame.payload[18],
+          relaySkip: pd.getUint32(19, Endian.little),
+          relayDelay: pd.getUint32(23, Endian.little),
+          relayDensity: frame.payload[27],
+          relayFwd: pd.getUint32(28, Endian.little),
+          relaySel: pd.getUint32(32, Endian.little),
+          relayCan: pd.getUint32(36, Endian.little),
+          rxDecodeFail: pd.getUint32(40, Endian.little),
+          rxDedupeDrop: pd.getUint32(44, Endian.little),
+          rxTtlDrop: pd.getUint32(48, Endian.little),
+          rxBadType: pd.getUint32(52, Endian.little),
+          rxBadHop: pd.getUint32(56, Endian.little),
+          txQueueFull: pd.getUint32(60, Endian.little),
+          dutyBlocked: pd.getUint32(64, Endian.little),
+          noRoute: pd.getUint32(68, Endian.little),
+          loopDetectDrop: pd.getUint32(72, Endian.little),
+          radioHardReset: pd.getUint32(76, Endian.little),
+          radioTxFail: pd.getUint32(80, Endian.little),
+          radioCrcFail: pd.getUint32(84, Endian.little),
+          routeCacheHit: pd.getUint32(88, Endian.little),
+          routeCacheMiss: pd.getUint32(92, Endian.little),
+          ackTx: pd.getUint32(96, Endian.little),
+          ackRx: pd.getUint32(100, Endian.little),
+          retryAttempt: pd.getUint32(104, Endian.little),
+          retrySuccess: pd.getUint32(108, Endian.little),
+          retryFail: pd.getUint32(112, Endian.little),
+          bleConn: pd.getUint32(116, Endian.little),
+          bleRx: pd.getUint32(120, Endian.little),
+          bleTx: pd.getUint32(124, Endian.little),
+          bleErr: pd.getUint32(128, Endian.little),
+          collectedAt: DateTime.now(),
+        ));
+      }
+
       return MetricsEvent(RivrMetrics(
         nodeId: pd.getUint32(0, Endian.little),
         dcPct: frame.payload[4],
