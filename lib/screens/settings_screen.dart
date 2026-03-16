@@ -386,15 +386,9 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
   }
 
   Future<void> _connectTo(String id) async {
-    String? blePin;
-    if (_mode == _ConnectMode.ble) {
-      blePin = await _promptBlePin();
-      if (blePin == null || blePin.isEmpty) return;
-    }
-
     final settings = ref.read(settingsProvider);
     final service = _mode == _ConnectMode.ble
-        ? BleService(phoneNodeId: settings.phoneNodeId, blePin: blePin)
+        ? BleService(phoneNodeId: settings.phoneNodeId)
         : SerialService(baudRate: settings.lastUsbBaudRate);
 
     await _scanSub?.cancel();
@@ -411,47 +405,6 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
         );
       }
     }
-  }
-
-  Future<String?> _promptBlePin() async {
-    final ctrl = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Enter node PIN'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
-          decoration: const InputDecoration(
-            hintText: '6 digits',
-            helperText: 'Read the BLE PIN from the node display',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, null),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final pin = ctrl.text.trim();
-              if (RegExp(r'^\d{6}$').hasMatch(pin)) {
-                Navigator.pop(ctx, pin);
-                return;
-              }
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text('Enter a 6-digit PIN')),
-              );
-            },
-            child: const Text('Connect'),
-          ),
-        ],
-      ),
-    );
-    ctrl.dispose();
-    return result;
   }
 }
 

@@ -41,7 +41,6 @@ class NusUuids {
 ///   • Exponential reconnect backoff on unexpected disconnect.
 class BleService extends RivrTransport {
   final int phoneNodeId;
-  final String? blePin;
   int _seq = 0;
 
   final _stateCtrl = StreamController<RivrConnState>.broadcast();
@@ -61,12 +60,11 @@ class BleService extends RivrTransport {
   bool _disposed = false;
   bool _intentionalDisconnect = false;
   bool _wasConnected = false;
-  bool _bondPinInjectInFlight = false;
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   static const _reconnectDelays = [1, 2, 5];
 
-  BleService({required this.phoneNodeId, this.blePin});
+  BleService({required this.phoneNodeId});
 
   @override
   Stream<RivrConnState> get stateStream => _stateCtrl.stream;
@@ -160,7 +158,6 @@ class BleService extends RivrTransport {
       });
 
       await _startBondMonitoring(device);
-      await _awaitInitialBonding(device);
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
       // Wait 600 ms: Samsung One UI 7 (Android 15) throws PlatformException if
@@ -263,8 +260,8 @@ class BleService extends RivrTransport {
   /// Subscribe to [char] notifications.
   ///
   /// On some stacks a protected CCCD write is enough to trigger the Android
-  /// bonding dialog; on NimBLE the CCCD can remain writable even when the
-  /// characteristic value itself requires authenticated encryption.
+  /// bonding dialog, while on others the first authenticated data access is
+  /// what forces pairing.
   ///
   /// Keep this path as an opportunistic fast-path and use the same auth retry
   /// logic on the first RX write as the real fallback.
@@ -422,12 +419,7 @@ class BleService extends RivrTransport {
     if (!Platform.isAndroid) return;
     await _bondSub?.cancel();
     _bondSub = device.bondState.listen(
-      (state) {
-        _bleLog('bondState → $state');
-        if (state == BluetoothBondState.bonding) {
-          unawaited(_injectConfiguredPin(device));
-        }
-      },
+      (state) => _bleLog('bondState → $state'),
       onError: (Object err) =>
           _bleLog('bondState stream error: $err', error: true),
     );
@@ -448,17 +440,8 @@ class BleService extends RivrTransport {
 
     final bonded = await _waitForBonded(device);
     if (!bonded) {
-      throw Exception('BLE pairing did not complete');
-    }
-  }
-
-  Future<void> _awaitInitialBonding(BluetoothDevice device) async {
-    if (!Platform.isAndroid || blePin == null || blePin!.isEmpty) return;
-
-    final bonded = await _waitForBondResult(device);
-    if (!bonded) {
       throw Exception(
-          'BLE pairing failed. Check that the node PIN matches the one you entered.');
+          'BLE pairing did not complete. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
     }
   }
 
@@ -475,64 +458,12 @@ class BleService extends RivrTransport {
     }
   }
 
-  Future<bool> _waitForBondResult(BluetoothDevice device) async {
-    if (!Platform.isAndroid) return true;
-
-    final completer = Completer<bool>();
-    var sawBonding = false;
-
-    late final StreamSubscription<BluetoothBondState> sub;
-    sub = device.bondState.listen((state) {
-      if (state == BluetoothBondState.bonding) {
-        sawBonding = true;
-        return;
-      }
-      if (state == BluetoothBondState.bonded && !completer.isCompleted) {
-        completer.complete(true);
-        return;
-      }
-      if (state == BluetoothBondState.none &&
-          sawBonding &&
-          !completer.isCompleted) {
-        completer.complete(false);
-      }
-    });
-
-    try {
-      return await completer.future.timeout(const Duration(seconds: 20));
-    } on TimeoutException {
-      _bleLog('bonding timed out waiting for a final bond result', error: true);
-      return false;
-    } finally {
-      await sub.cancel();
-    }
-  }
-
   bool _isCreateBondRefusal(Object error) {
     final msg = error.toString().toLowerCase();
     return msg.contains('createbond') &&
         (msg.contains('bmbondstateenum.none') ||
             msg.contains('returned false') ||
             msg.contains('failed to create bond'));
-  }
-
-  Future<void> _injectConfiguredPin(BluetoothDevice device) async {
-    if (!Platform.isAndroid || blePin == null || blePin!.isEmpty) return;
-    if (_bondPinInjectInFlight) return;
-    _bondPinInjectInFlight = true;
-    try {
-      _bleLog('bonding: injecting configured BLE PIN');
-      await device.createBond(pin: Uint8List.fromList(blePin!.codeUnits));
-    } catch (e) {
-      if (_isCreateBondRefusal(e)) {
-        _bleLog(
-            'bonding: Android refused explicit PIN injection; waiting anyway');
-      } else {
-        _bleLog('bonding: PIN injection failed: $e', error: true);
-      }
-    } finally {
-      _bondPinInjectInFlight = false;
-    }
   }
 
   bool _isAuthError(Object error) {
