@@ -38,14 +38,7 @@ const int _kBroadcast = 0;
 // Packet type constants (§6 of the BLE integration guide).
 const int _kPktChat = 1;
 const int _kPktBeacon = 2;
-const int _kPktRouteReq = 3;
-const int _kPktRouteRpl = 4;
-const int _kPktAck = 5;
-const int _kPktData = 6;
-const int _kPktProgPush = 7;
 const int _kPktTelemetry = 8;
-const int _kPktMailbox = 9;
-const int _kPktAlert = 10;
 const int _kPktMetrics = 11;
 
 /// A decoded binary Rivr frame (§6 of the BLE integration guide).
@@ -360,9 +353,6 @@ class RivrProtocol {
 
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
-  static final _chatRxPattern =
-      RegExp(r'\[CHAT\]\[([0-9A-Fa-f]+)\]:\s*(.+)', caseSensitive: false);
-
   // ── Beacon / node info in ntable output ───────────────────────────────────
   // Example:  0x1A2B3C4D  ALICE    1  -87  +8  72  15s  123
   static final _ntableRowPattern = RegExp(

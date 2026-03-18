@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/rivr_node.dart';
 import '../providers/app_providers.dart';
-import '../providers/settings_provider.dart';
 
 class NetworkMapScreen extends ConsumerWidget {
   const NetworkMapScreen({super.key});
