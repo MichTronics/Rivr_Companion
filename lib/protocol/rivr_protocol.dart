@@ -497,6 +497,14 @@ class RivrProtocol {
   /// Build the serial command to send a chat message.
   static String buildChatCommand(String text) => 'chat $text\n';
 
+  /// Firmware CLI command to persist the node callsign.
+  static String buildSetCallsignCommand(String callsign) =>
+      'set callsign $callsign\n';
+
+  /// Firmware accepts 1-11 chars: A-Z a-z 0-9 dash.
+  static bool isValidCallsign(String callsign) =>
+      RegExp(r'^[A-Za-z0-9-]{1,11}$').hasMatch(callsign);
+
   /// Request the node table printout.
   static const String cmdNtable = 'ntable\n';
 

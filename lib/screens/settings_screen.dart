@@ -190,6 +190,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  Future<void> _syncCallsignToUsbFirmware(String callsign) async {
+    if (callsign.isEmpty) return;
+    final settings = ref.read(settingsProvider);
+    final connState = ref.read(connectionStateProvider);
+    final canUseSerialCli = connState.maybeWhen(
+      data: (s) =>
+          s.isConnected && settings.lastConnectionType == ConnectionType.usb,
+      orElse: () => false,
+    );
+    if (!canUseSerialCli) return;
+    await ref
+        .read(connectionManagerProvider)
+        .send(RivrProtocol.buildSetCallsignCommand(callsign));
+  }
+
   Future<void> _editCallsign(AppSettings settings) async {
     _callsignCtrl.text = settings.myCallsign;
     final result = await showDialog<String>(
@@ -215,7 +230,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (result != null) {
+      if (result.isNotEmpty && !RivrProtocol.isValidCallsign(result)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Callsign must be 1-11 characters: A-Z, a-z, 0-9, or -'),
+            ),
+          );
+        }
+        return;
+      }
       await ref.read(settingsNotifierProvider.notifier).setCallsign(result);
+      await _syncCallsignToUsbFirmware(result);
+      if (mounted &&
+          result.isNotEmpty &&
+          settings.lastConnectionType != ConnectionType.usb) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Callsign saved in the app. Firmware sync is currently USB-only.'),
+          ),
+        );
+      }
     }
   }
 }
@@ -398,6 +435,11 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
     try {
       await ref.read(connectionManagerProvider).useTransport(service);
       await ref.read(connectionManagerProvider).connect(id);
+      if (_mode == _ConnectMode.usb && settings.myCallsign.isNotEmpty) {
+        await ref.read(connectionManagerProvider).send(
+              RivrProtocol.buildSetCallsignCommand(settings.myCallsign),
+            );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
