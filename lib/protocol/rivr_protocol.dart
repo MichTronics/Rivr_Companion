@@ -40,6 +40,21 @@ const int _kPktChat = 1;
 const int _kPktBeacon = 2;
 const int _kPktTelemetry = 8;
 const int _kPktMetrics = 11;
+const int _kCompanionMagic = 0x4352; // 'RC' little-endian
+const int _kCompanionVersion = 1;
+const int _kCompanionHdrLen = 5;
+
+const int _kCpCmdAppStart = 0x01;
+const int _kCpCmdDeviceQuery = 0x02;
+const int _kCpCmdSetCallsign = 0x03;
+const int _kCpCmdGetNeighbors = 0x04;
+
+const int _kCpPktOk = 0x80;
+const int _kCpPktErr = 0x81;
+const int _kCpPktDeviceInfo = 0x82;
+const int _kCpPktNodeInfo = 0x83;
+const int _kCpPktNodeListDone = 0x84;
+const int _kCpPktChatRx = 0x85;
 
 /// A decoded binary Rivr frame (§6 of the BLE integration guide).
 class RivrFrame {
@@ -336,6 +351,109 @@ class RivrFrameCodec {
 
   /// Generate a random 32-bit node ID for the phone (call once, then persist).
   static int generateNodeId() => Random.secure().nextInt(0xFFFFFFFF - 1) + 1;
+}
+
+class RivrCompanionCodec {
+  static bool isCompanionPacket(Uint8List bytes) {
+    if (bytes.length < _kCompanionHdrLen) return false;
+    final bd = ByteData.sublistView(bytes);
+    return bd.getUint16(0, Endian.little) == _kCompanionMagic;
+  }
+
+  static Uint8List _buildPacket(int type, [Uint8List? payload]) {
+    final body = payload ?? Uint8List(0);
+    final bytes = Uint8List(_kCompanionHdrLen + body.length);
+    final bd = ByteData.sublistView(bytes);
+    bd.setUint16(0, _kCompanionMagic, Endian.little);
+    bytes[2] = _kCompanionVersion;
+    bytes[3] = type & 0xFF;
+    bytes[4] = 0;
+    if (body.isNotEmpty) {
+      bytes.setRange(_kCompanionHdrLen, bytes.length, body);
+    }
+    return bytes;
+  }
+
+  static Uint8List buildAppStart() => _buildPacket(_kCpCmdAppStart);
+  static Uint8List buildDeviceQuery() => _buildPacket(_kCpCmdDeviceQuery);
+  static Uint8List buildSetCallsign(String callsign) =>
+      _buildPacket(_kCpCmdSetCallsign, Uint8List.fromList(utf8.encode(callsign)));
+  static Uint8List buildGetNeighbors() => _buildPacket(_kCpCmdGetNeighbors);
+
+  static String describePacket(Uint8List bytes, {required String direction}) {
+    if (!isCompanionPacket(bytes)) {
+      return '$direction BLE_CP invalid len=${bytes.length}';
+    }
+    final type = bytes[3];
+    final status = bytes[4];
+    return '$direction BLE_CP type=0x${type.toRadixString(16).padLeft(2, '0').toUpperCase()}'
+        ' status=$status len=${bytes.length - _kCompanionHdrLen}';
+  }
+
+  static RivrEvent? parsePacket(Uint8List bytes) {
+    if (!isCompanionPacket(bytes)) return null;
+    if (bytes[2] != _kCompanionVersion) {
+      return RawLineEvent('BLE_CP:unsupported_version:${bytes[2]}');
+    }
+
+    final type = bytes[3];
+    final payload = bytes.sublist(_kCompanionHdrLen);
+    final pd = ByteData.sublistView(payload);
+
+    switch (type) {
+      case _kCpPktOk:
+        final cmd = payload.isNotEmpty ? payload[0] : 0;
+        return RawLineEvent('BLE_CP:ok:0x${cmd.toRadixString(16).padLeft(2, '0')}');
+
+      case _kCpPktErr:
+        final cmd = payload.isNotEmpty ? payload[0] : 0;
+        final msg = payload.length > 1
+            ? utf8.decode(payload.sublist(1), allowMalformed: true)
+            : 'error';
+        return RawLineEvent('BLE_CP:err:0x${cmd.toRadixString(16).padLeft(2, '0')}:$msg');
+
+      case _kCpPktDeviceInfo:
+        return RawLineEvent(
+            'BLE_CP:device:${utf8.decode(payload, allowMalformed: true)}');
+
+      case _kCpPktNodeInfo:
+        if (payload.length < 22) return null;
+        final callsignBytes =
+            payload.sublist(10, 22).takeWhile((b) => b != 0).toList();
+        return NodeEvent(RivrNode(
+          nodeId: pd.getUint32(0, Endian.little),
+          callsign: utf8.decode(callsignBytes, allowMalformed: true),
+          rssiDbm: pd.getInt8(4),
+          snrDb: pd.getInt8(5),
+          hopCount: payload[6],
+          linkScore: payload[7],
+          lossPercent: 0,
+          lastSeen: DateTime.now(),
+        ));
+
+      case _kCpPktNodeListDone:
+        return RawLineEvent('BLE_CP:nodes:done');
+
+      case _kCpPktChatRx:
+        if (payload.length < 5) return null;
+        final srcId = pd.getUint32(0, Endian.little);
+        final text = utf8.decode(payload.sublist(4), allowMalformed: true).trim();
+        if (text.isEmpty) return null;
+        final srcHex =
+            '0x${srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+        return ChatEvent(ChatMessage(
+          id: '${DateTime.now().microsecondsSinceEpoch}',
+          text: text,
+          senderNodeId: srcId,
+          senderName: srcHex,
+          timestamp: DateTime.now(),
+          origin: MessageOrigin.remote,
+        ));
+    }
+
+    return RawLineEvent(
+        'BLE_CP:type=0x${type.toRadixString(16).padLeft(2, '0').toUpperCase()}');
+  }
 }
 
 /// Parses raw text lines from the Rivr firmware serial output and emits typed

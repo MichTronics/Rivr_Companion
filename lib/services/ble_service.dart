@@ -63,6 +63,7 @@ class BleService extends RivrTransport {
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   static const _reconnectDelays = [1, 2, 5];
+  bool _companionReady = false;
 
   BleService({required this.phoneNodeId});
 
@@ -179,6 +180,7 @@ class BleService extends RivrTransport {
       _wasConnected = true;
       _reconnectAttempt = 0;
       await _discoverServices(device);
+      await _startCompanionSession();
 
       _emit(
         ConnectionStatus.connected,
@@ -231,6 +233,7 @@ class BleService extends RivrTransport {
     _connSub = null;
     _bondSub = null;
     _notifySub = null;
+    _companionReady = false;
     _writeChar = null;
     _notifyChar = null;
     if (!_wasConnected || _reconnectAttempt >= _reconnectDelays.length) {
@@ -309,6 +312,14 @@ class BleService extends RivrTransport {
 
   void _onBytes(List<int> bytes) {
     final packet = Uint8List.fromList(bytes);
+    if (RivrCompanionCodec.isCompanionPacket(packet)) {
+      _safeAddEvent(
+        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'RX')),
+      );
+      final event = RivrCompanionCodec.parsePacket(packet);
+      if (event != null) _safeAddEvent(event);
+      return;
+    }
     _safeAddEvent(
       RawLineEvent(RivrFrameCodec.describeFrame(packet, direction: 'RX')),
     );
@@ -329,33 +340,38 @@ class BleService extends RivrTransport {
   @override
   Future<void> send(String command) async {
     if (_writeChar == null || _device == null) return;
-    if (!command.startsWith('chat ')) return;
-    final text = command.substring(5).trimRight();
-    if (text.isEmpty) return;
-    final frameBytes = RivrFrameCodec.buildChatFrame(
-      srcId: phoneNodeId,
-      seq: _seq++,
-      text: text,
-    );
-    _safeAddEvent(
-      RawLineEvent(RivrFrameCodec.describeFrame(frameBytes, direction: 'TX')),
-    );
-    final value = frameBytes.toList();
-    try {
-      await _writeChar!.write(
-        value,
-        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+    Uint8List? packet;
+
+    if (command.startsWith('chat ')) {
+      final text = command.substring(5).trimRight();
+      if (text.isEmpty) return;
+      packet = RivrFrameCodec.buildChatFrame(
+        srcId: phoneNodeId,
+        seq: _seq++,
+        text: text,
       );
-    } catch (e) {
-      if (!_isAuthError(e)) rethrow;
-      _bleLog(
-          'writeCharacteristic: authentication required — triggering OS bond dialog');
-      await _ensureBonded(_device!, 'writeCharacteristic');
-      await _writeChar!.write(
-        value,
-        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+      _safeAddEvent(
+        RawLineEvent(RivrFrameCodec.describeFrame(packet, direction: 'TX')),
       );
+    } else if (command == RivrProtocol.cmdNtable) {
+      packet = RivrCompanionCodec.buildGetNeighbors();
+      _safeAddEvent(
+        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+      );
+    } else if (command.startsWith('set callsign ')) {
+      final callsign = command.substring('set callsign '.length).trimRight();
+      if (callsign.isEmpty) return;
+      packet = RivrCompanionCodec.buildSetCallsign(callsign);
+      _safeAddEvent(
+        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+      );
+    } else {
+      return;
     }
+
+    final packetToSend = packet;
+    if (packetToSend == null) return;
+    await _writeBytes(packetToSend);
   }
 
   // ── Disconnect ────────────────────────────────────────────────────────────
@@ -379,6 +395,7 @@ class BleService extends RivrTransport {
     _device = null;
     _writeChar = null;
     _notifyChar = null;
+    _companionReady = false;
     _seenScanIds.clear();
     _emit(ConnectionStatus.disconnected, '');
   }
@@ -400,6 +417,39 @@ class BleService extends RivrTransport {
     await _connSub?.cancel();
     await _bondSub?.cancel();
     await _device?.disconnect();
+    _companionReady = false;
+  }
+
+  Future<void> _startCompanionSession() async {
+    if (_companionReady || _writeChar == null) return;
+    await _writeBytes(RivrCompanionCodec.buildAppStart(), logTx: true);
+    await _writeBytes(RivrCompanionCodec.buildDeviceQuery(), logTx: true);
+    _companionReady = true;
+  }
+
+  Future<void> _writeBytes(Uint8List packet, {bool logTx = false}) async {
+    if (_writeChar == null || _device == null) return;
+    if (logTx && RivrCompanionCodec.isCompanionPacket(packet)) {
+      _safeAddEvent(
+        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+      );
+    }
+    final value = packet.toList();
+    try {
+      await _writeChar!.write(
+        value,
+        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+      );
+    } catch (e) {
+      if (!_isAuthError(e)) rethrow;
+      _bleLog(
+          'writeCharacteristic: authentication required — triggering OS bond dialog');
+      await _ensureBonded(_device!, 'writeCharacteristic');
+      await _writeChar!.write(
+        value,
+        withoutResponse: _writeChar!.properties.writeWithoutResponse,
+      );
+    }
   }
 
   Future<void> _ensurePermissions() async {
