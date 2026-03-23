@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io' show Directory, File, FileMode, Platform, Process, RandomAccessFile;
 import 'dart:typed_data';
 
-// usb_serial: Android/Windows only; calls are guarded by Platform.isLinux checks.
+// usb_serial: Android only.
 import 'package:usb_serial/usb_serial.dart';
+// flutter_libserialport: Windows/Linux desktop serial.
+import 'package:flutter_libserialport/flutter_libserialport.dart';
 
 import '../protocol/rivr_protocol.dart';
 import 'connection_manager.dart';
@@ -14,7 +16,7 @@ import 'connection_manager.dart';
 /// • Android  – uses `usb_serial` (USB host permission dialog shown automatically)
 /// • Linux    – enumerates /dev/ttyUSB* and /dev/ttyACM*, configures via `stty`,
 ///              reads/writes the character device directly with dart:io
-/// • Windows  – uses `usb_serial` COM-port enumeration
+/// • Windows  – uses flutter_libserialport (libserialport) for COM port access
 ///
 /// Baud rate defaults to 115200, matching firmware_core/main.c UART config.
 class SerialService extends RivrTransport {
@@ -26,13 +28,18 @@ class SerialService extends RivrTransport {
   final _lineBuffer = StringBuffer();
   bool _disposed = false;
 
-  // Mobile / Windows handles
+  // Android-only USB handles (usb_serial)
   UsbPort? _usbPort;
   StreamSubscription<Uint8List>? _usbRxSub;
 
-  // Linux handles
-  StreamSubscription<List<int>>? _linuxRxSub;
-  RandomAccessFile? _linuxWriteFd;
+  // Linux handles (dart:io)
+  StreamSubscription<List<int>>? _desktopRxSub;
+  RandomAccessFile? _desktopWriteFd;
+
+  // Windows handles (flutter_libserialport)
+  SerialPort? _winPort;
+  SerialPortReader? _winReader;
+  StreamSubscription<Uint8List>? _winRxSub;
 
   @override
   Stream<RivrConnState> get stateStream => _stateCtrl.stream;
@@ -46,8 +53,10 @@ class SerialService extends RivrTransport {
     _emit(ConnectionStatus.scanning, 'USB scan');
     if (Platform.isLinux) {
       await _linuxScan();
+    } else if (Platform.isWindows) {
+      await _windowsScan();
     } else {
-      await _mobileScan();
+      await _mobileScan(); // Android
     }
     _emit(ConnectionStatus.disconnected, '');
   }
@@ -87,6 +96,15 @@ class SerialService extends RivrTransport {
     }
   }
 
+  Future<void> _windowsScan() async {
+    for (final portName in SerialPort.availablePorts) {
+      final sp = SerialPort(portName);
+      final desc = sp.description ?? portName;
+      sp.dispose();
+      _safeAddEvent(RawLineEvent('USB_SCAN:$portName:$desc'));
+    }
+  }
+
   // ── Connect ───────────────────────────────────────────────────────────────
   @override
   Future<void> connect(String deviceId) async {
@@ -94,8 +112,10 @@ class SerialService extends RivrTransport {
     try {
       if (Platform.isLinux) {
         await _linuxConnect(deviceId);
+      } else if (Platform.isWindows) {
+        await _windowsConnect(deviceId);
       } else {
-        await _mobileConnect(deviceId);
+        await _mobileConnect(deviceId); // Android
       }
     } catch (e) {
       _emit(ConnectionStatus.error, deviceId, error: e.toString());
@@ -110,17 +130,41 @@ class SerialService extends RivrTransport {
       throw Exception('stty failed: ${stty.stderr}');
     }
 
-    // Open a write file-descriptor
-    _linuxWriteFd = await File(path).open(mode: FileMode.writeOnly);
-
-    // Start reading
-    _linuxRxSub = File(path).openRead().listen(
+    _desktopWriteFd = await File(path).open(mode: FileMode.writeOnly);
+    _desktopRxSub = File(path).openRead().listen(
       _onBytes,
       onError: (e) => _emit(ConnectionStatus.error, path, error: e.toString()),
       onDone: () => _emit(ConnectionStatus.disconnected, ''),
     );
 
     _emit(ConnectionStatus.connected, path.split('/').last);
+  }
+
+  Future<void> _windowsConnect(String port) async {
+    final sp = SerialPort(port);
+    if (!sp.openReadWrite()) {
+      final err = SerialPort.lastError;
+      sp.dispose();
+      throw Exception('Failed to open $port: $err');
+    }
+
+    final cfg = SerialPortConfig()
+      ..baudRate = baudRate
+      ..bits = 8
+      ..stopBits = 1
+      ..parity = SerialPortParity.none;
+    sp.config = cfg;
+
+    _winPort = sp;
+    final reader = SerialPortReader(sp);
+    _winReader = reader;
+    _winRxSub = reader.stream.listen(
+      _onBytes,
+      onError: (e) => _emit(ConnectionStatus.error, port, error: e.toString()),
+      onDone: () => _emit(ConnectionStatus.disconnected, ''),
+    );
+
+    _emit(ConnectionStatus.connected, port);
   }
 
   Future<void> _mobileConnect(String deviceId) async {
@@ -166,7 +210,9 @@ class SerialService extends RivrTransport {
   Future<void> send(String command) async {
     final data = utf8.encode(command);
     if (Platform.isLinux) {
-      await _linuxWriteFd?.writeFrom(data);
+      await _desktopWriteFd?.writeFrom(data);
+    } else if (Platform.isWindows) {
+      _winPort?.write(Uint8List.fromList(data));
     } else {
       await _usbPort?.write(Uint8List.fromList(data));
     }
@@ -175,11 +221,22 @@ class SerialService extends RivrTransport {
   // ── Disconnect ────────────────────────────────────────────────────────────
   @override
   Future<void> disconnect() async {
-    await _linuxRxSub?.cancel();
-    await _linuxWriteFd?.close();
-    _linuxRxSub = null;
-    _linuxWriteFd = null;
+    // Linux
+    await _desktopRxSub?.cancel();
+    await _desktopWriteFd?.close();
+    _desktopRxSub = null;
+    _desktopWriteFd = null;
 
+    // Windows
+    await _winRxSub?.cancel();
+    _winReader?.close();
+    _winPort?.close();
+    _winPort?.dispose();
+    _winRxSub = null;
+    _winReader = null;
+    _winPort = null;
+
+    // Android
     await _usbRxSub?.cancel();
     await _usbPort?.close();
     _usbRxSub = null;
