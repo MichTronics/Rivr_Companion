@@ -370,7 +370,6 @@ class BleService extends RivrTransport {
     }
 
     final packetToSend = packet;
-    if (packetToSend == null) return;
     await _writeBytes(packetToSend);
   }
 
