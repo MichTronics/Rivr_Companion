@@ -64,13 +64,14 @@ Examples:
 
 ### Service UUID in advertisement
 
-The advertisement payload includes the **full 128-bit service UUID** (`6E400001-...`), allowing
-the app to filter scan results by UUID instead of name if preferred.
+The advertisement payload includes the **full 128-bit service UUID** (`6E400001-...`).
+The local name is placed in the **scan response** packet, so the app should use
+active scanning when filtering by name.
 
 ### Advertising interval
 
-The node advertises at **500–1000 ms** intervals.  Typical scan discovery time is under 2 s
-with active scanning.
+The node advertises at **100–200 ms** intervals during an active window.  Typical scan
+discovery time is under 1 s with active scanning.
 
 ### Recommended scan filter
 
@@ -114,13 +115,13 @@ connect within the active window, or trigger a new one.
 
 ### MTU negotiation
 
-The node firmware configures `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU = 128`.
+The node firmware targets an ATT MTU of **247** on both ESP32 and nRF52 builds.
 
 **Always request a higher MTU** after connecting:
 
 ```dart
-// flutter_reactive_ble example
-await _ble.requestMtu(deviceId: deviceId, mtu: 247);
+// flutter_blue_plus example
+await device.requestMtu(247);
 ```
 
 After negotiation, the effective payload per write/notify is:
@@ -131,8 +132,8 @@ effective_payload = negotiated_mtu - 3 (ATT header overhead)
 | Negotiated MTU | Max bytes per write/notify |
 |---|---|
 | 23 (default, no negotiation) | **20 bytes** — too small for most Rivr frames |
-| 128 (node preferred) | 125 bytes |
-| 247 (BLE 4.2+, recommended) | 244 bytes — fits any Rivr frame (max 255 bytes) |
+| 128 | 125 bytes |
+| 247 (recommended) | 244 bytes |
 
 > ⚠ **Do not skip MTU negotiation.** The minimum Rivr frame is 25 bytes and the typical CHAT
 > frame is 30–60 bytes.  The default 20-byte ATT payload will truncate most frames.
@@ -143,9 +144,11 @@ effective_payload = negotiated_mtu - 3 (ATT header overhead)
 |---|---|
 | Minimum frame size | 25 bytes (23-byte header + 2-byte CRC) |
 | Maximum frame size | 255 bytes (LoRa hardware limit) |
+| Maximum BLE-carriable frame | 244 bytes at MTU 247 |
 | Maximum payload inside a frame | 230 bytes |
 
-The node rejects writes that exceed 255 bytes with `ATT_ERR_INVALID_ATTR_VALUE_LEN`.
+The node rejects writes that exceed the negotiated BLE payload limit or 255 bytes,
+whichever is lower.
 
 ---
 
@@ -164,14 +167,14 @@ Offset  Len  Field           Type     Notes
   3      1   pkt_type        u8       See packet type table below.
   4      1   flags           u8       Bitmask: 0x01=ACK_REQ, 0x02=RELAYED, 0x04=FALLBACK
   5      1   ttl             u8       Hops remaining. Default 7. Decrement on relay.
-  6      4   src_id          u32 LE   Originating node ID.
- 10      4   dst_id          u32 LE   Destination node ID. 0xFFFFFFFF = broadcast.
- 14      2   net_id          u16 LE   Network partition ID. 0x0000 = default.
- 16      1   hop_count       u8       Hops taken so far.
+  6      1   hop             u8       Hops taken so far. 0 at origin.
+  7      2   net_id          u16 LE   Network partition ID. 0x0000 = default.
+  9      4   src_id          u32 LE   Originating node ID.
+ 13      4   dst_id          u32 LE   Destination node ID. 0x00000000 = broadcast.
  17      2   seq             u16 LE   Per-source sequence counter (message ordering).
  19      2   pkt_id          u16 LE   Deduplication fingerprint (do not set — firmware fills).
  21      1   payload_len     u8       Number of application payload bytes that follow.
- 22      1   (reserved)      u8       Always 0.
+ 22      1   loop_guard      u8       OR-accumulating relay fingerprint. Set to 0 on originate.
  23     [N]  payload         bytes    Application-specific bytes (payload_len bytes).
  23+N    2   crc             u16 LE   CRC-16/CCITT over bytes [0 .. 23+N-1].
 ```
@@ -190,6 +193,7 @@ Offset  Len  Field           Type     Notes
 | 8 | `PKT_TELEMETRY` | Structured telemetry payload |
 | 9 | `PKT_MAILBOX` | Store-and-forward message |
 | 10 | `PKT_ALERT` | High-priority alert |
+| 11 | `PKT_METRICS` | Firmware diagnostics snapshot (BLE-only, TTL=1, never LoRa-relayed) |
 
 ### CRC algorithm
 
@@ -230,8 +234,8 @@ Offset  Len  Field
 5. Inspect `pkt_type` to route to the appropriate UI handler.
 
 ```dart
-// flutter_reactive_ble example
-final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
+// flutter_blue_plus example
+txChar.onValueReceived.listen((data) {
   final bytes = Uint8List.fromList(data);
   if (!validateRivrFrame(bytes)) return;   // check magic + CRC
   final pktType = bytes[3];
@@ -242,6 +246,7 @@ final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
     // ...
   }
 });
+await txChar.setNotifyValue(true);
 ```
 
 ---
@@ -251,7 +256,7 @@ final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
 1. **Build a complete binary Rivr frame** including magic, all header fields, payload, and CRC.
 2. **Set `src_id`** to the phone's virtual node ID — pick a fixed random 32-bit value and persist
    it locally (do not generate a new ID each session).
-3. Set `dst_id` to `0xFFFFFFFF` for broadcast CHAT, or the target's node ID for unicast.
+3. Set `dst_id` to `0x00000000` for broadcast CHAT, or the target's node ID for unicast.
 4. Set `ttl` to 7 (default).  The node will decrement on relay.
 5. Set `seq` to an incrementing counter per `src_id`.
 6. **Leave `pkt_id` as 0** — the node's firmware does not use the phone's `pkt_id` for
@@ -259,8 +264,8 @@ final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
 7. Write to the RX characteristic (`6E400002-...`):
    - Use **Write Without Response** for lower latency (`BLE_GATT_CHR_F_WRITE_NO_RSP`).
    - Use **Write With Response** if you want delivery confirmation from the node.
-8. Maximum write size: `negotiated_mtu - 3` bytes per write.  For Rivr frames ≤ 125 bytes,
-   a single write is sufficient after MTU negotiation to 128.  Larger payloads are
+8. Maximum write size: `negotiated_mtu - 3` bytes per write.  For Rivr frames ≤ 244 bytes,
+   a single write is sufficient after MTU negotiation to 247.  Larger payloads are
    fragmented automatically by the BLE transport and reassembled on the peer.
 
 > BLE fragmentation uses a 6-byte Rivr transport header and only activates when a complete
@@ -274,10 +279,15 @@ final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
 ```
 App                              Rivr node (BLE active)
  │                                   │
- │── scan (filter: RIVR- or UUID) ──►│  (advertising 500–1000 ms)
+ │── scan (filter: RIVR- or UUID) ──►│  (advertising 100–200 ms)
  │                                   │
  │── connect ────────────────────────►│  GAP CONNECT event
  │                                   │  g_metrics.ble_connections++
+ │                                   │  (new peer) triggers MITM pairing
+ │◄── passkey notification ──────────│  node displays 6-digit PIN
+ │  [user enters PIN on phone]        │
+ │── pairing complete ───────────────►│  bond persisted on both sides
+ │                                   │
  │── request MTU (247) ──────────────►│  MTU event logged
  │                                   │
  │── subscribe TX notify ────────────►│  SUBSCRIBE event logged
@@ -298,20 +308,34 @@ window is still open).  The app should attempt reconnection with exponential bac
 
 ## 10. Security — current state
 
-| Property | v0.1.0-beta |
+| Property | Current `_ble` builds |
 |---|---|
-| Encryption | ❌ None (plaintext BLE) |
-| Pairing / bonding | ❌ None |
-| Authentication | ❌ None |
-| Filter by address | ❌ Not implemented |
+| Encryption | ✅ Link encryption required after pairing |
+| Pairing / bonding | ✅ LE Secure Connections bonding |
+| Authentication | ✅ MITM passkey entry |
+| Filter by address | ❌ Single-client only; no allow-list |
 
-**Implication for the companion app:** any phone or BLE scanner in range can connect to the node
-during an active window and inject frames into the mesh.  This is intentional for the beta —
-treat the BLE interface as a local physical-proximity trust boundary, equivalent to plugging in
-a serial cable.
+Current `_ble` environments ship with `RIVR_BLE_PASSKEY != 0`, so the phone must complete
+passkey pairing before the link is treated as data-ready.  Bonded phones reconnect silently
+and the bond is persisted on-device.  Open BLE builds remain possible with `RIVR_BLE_PASSKEY=0`.
 
-Current firmware supports optional LE Secure Connections pairing with passkey bonding when
-`RIVR_BLE_PASSKEY != 0`. Open BLE builds remain possible with `RIVR_BLE_PASSKEY=0`.
+### First-time connection — pairing flow
+
+On the **first** connection to a new node, pairing must complete before the app can
+subscribe to notifications or send frames:
+
+1. Immediately after the GAP connect event, the node triggers MITM authentication.
+2. The node generates and displays a **random 6-digit passkey** on its screen (logged as
+   `BLE pairing: show passkey XXXXXX`).
+3. On Android the OS presents a passkey entry dialog; the user must type the 6-digit code
+   shown on the node within **60 seconds**.
+4. On success the bond is persisted; future reconnections are silent (no PIN needed).
+5. On failure or timeout, the connection is dropped.
+
+**App-side implementation**: block all GATT operations (MTU request, `discoverServices`,
+`setNotifyValue`) until the Android bond state reaches `bonded`.  Only start normal
+operations (subscribe, send frames) after bonding completes.  A 60-second timeout is
+recommended.  Once the bond exists, reconnections require no extra delay.
 
 ---
 
@@ -338,33 +362,26 @@ UART0.
 
 | Package | Notes |
 |---|---|
-| [`flutter_reactive_ble`](https://pub.dev/packages/flutter_reactive_ble) | Recommended. Reactive streams, good MTU support, works on Android + iOS. |
-| [`flutter_blue_plus`](https://pub.dev/packages/flutter_blue_plus) | Also suitable. Broader platform support (Android, iOS, macOS, Linux, Windows). |
+| [`flutter_blue_plus`](https://pub.dev/packages/flutter_blue_plus) | **Used by Rivr Companion.** Android, iOS, macOS, Linux, Windows. |
+| [`flutter_reactive_ble`](https://pub.dev/packages/flutter_reactive_ble) | Alternative. Reactive streams, Android + iOS only. |
 
-Both packages support Nordic NUS UUIDs out of the box.  For `flutter_reactive_ble`:
+Both packages support Nordic NUS UUIDs.  The companion app uses `flutter_blue_plus`:
 
 ```dart
 const kServiceUuid  = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
 const kRxCharUuid   = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E';
 const kTxCharUuid   = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E';
 
-final rxChar = QualifiedCharacteristic(
-  serviceId:      Uuid.parse(kServiceUuid),
-  characteristicId: Uuid.parse(kRxCharUuid),
-  deviceId: deviceId,
-);
-
-final txChar = QualifiedCharacteristic(
-  serviceId:      Uuid.parse(kServiceUuid),
-  characteristicId: Uuid.parse(kTxCharUuid),
-  deviceId: deviceId,
-);
+final svc    = device.servicesList.firstWhere((s) => s.uuid == Guid(kServiceUuid));
+final rxChar = svc.characteristics.firstWhere((c) => c.uuid == Guid(kRxCharUuid));
+final txChar = svc.characteristics.firstWhere((c) => c.uuid == Guid(kTxCharUuid));
 
 // Subscribe to incoming mesh frames
-_ble.subscribeToCharacteristic(txChar).listen(onFrame);
+txChar.onValueReceived.listen(onFrame);
+await txChar.setNotifyValue(true);
 
 // Send a frame to the mesh
-await _ble.writeCharacteristicWithoutResponse(rxChar, value: frameBytes);
+await rxChar.write(frameBytes, withoutResponse: true);
 ```
 
 ---
@@ -409,7 +426,7 @@ support (`flutter_reactive_ble` does not support Windows as of 2026).
 |---|---|
 | **One client at a time** | Rivr currently tracks a single active BLE connection. A second phone cannot connect while one is already connected. |
 | **Fragmentation overhead** | Oversize payloads are fragmented automatically, but each fragment carries a 6-byte Rivr BLE transport header. |
-| **No encryption** | BLE traffic is plaintext. See Section 10. |
 | **Activation window** | BLE is not always on. See Section 4. |
+| **First-connection PIN entry** | First-time pairing requires entering a 6-digit PIN shown on the node's display. Subsequent connections are silent. See Section 10. |
 | **No phone↔phone relay** | Frames injected via BLE are processed by the connected node only; they do not bypass the node's relay policy. A PKT_CHAT written by the phone is subject to the same duty-cycle and relay rules as any LoRa frame. |
-| **ESP32-S3 BLE stability** | Heltec V3 and LilyGo T3-S3 use ESP32-S3. BLE on ESP32-S3 with IDF 5.x has less community testing than ESP32 classic. Report regressions. |
+| **ESP32-S3 BLE stability** | Heltec V3 and LilyGo T3-S3 use ESP32-S3. Static-random BLE addressing is used on these boards; advertising and reconnection are stable from IDF 5.5.0. |
