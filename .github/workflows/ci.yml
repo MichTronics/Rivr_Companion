@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Companion / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: windows
+            os: windows-latest
+          - platform: android
+            os: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Linux desktop deps (GTK, Bluetooth, USB serial)
+      - name: Install Linux desktop dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev libbluetooth-dev \
+            libusb-1.0-0-dev libserialport-dev
+
+      # Android — Java 17 required by AGP 8+
+      - name: Set up Java 17 (Android)
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Get pub dependencies
+        run: flutter pub get
+
+      # Analyze + tests run once (Linux) — they are platform-independent
+      - name: Analyze
+        if: matrix.platform == 'linux'
+        run: flutter analyze
+
+      - name: Widget tests
+        if: matrix.platform == 'linux'
+        run: flutter test
+
+      - name: Build Linux (release)
+        if: matrix.platform == 'linux'
+        run: flutter build linux --release
+
+      - name: Build Windows (release)
+        if: matrix.platform == 'windows'
+        run: flutter build windows --release
+
+      - name: Build Android APK (release)
+        if: matrix.platform == 'android'
+        run: flutter build apk --release
