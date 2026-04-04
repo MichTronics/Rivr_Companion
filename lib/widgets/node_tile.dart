@@ -17,12 +17,39 @@ class NodeTile extends StatelessWidget {
 
     return ListTile(
       leading: _ScoreIndicator(score: node.linkScore, stale: stale),
-      title: Text(
-        node.displayName,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: stale ? cs.outline : null,
-        ),
+      title: Row(
+        children: [
+          Text(
+            node.displayName,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: stale ? cs.outline : null,
+            ),
+          ),
+          if (node.isRepeater || node.isGateway) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: node.isGateway
+                    ? Colors.purple.shade100
+                    : Colors.teal.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                node.roleLabel.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: node.isGateway
+                      ? Colors.purple.shade800
+                      : Colors.teal.shade800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
       subtitle: Text(
         '${node.rssiDbm} dBm  ·  SNR ${node.snrDb > 0 ? '+' : ''}${node.snrDb} dB  ·  '
@@ -81,6 +108,8 @@ class NodeTile extends StatelessWidget {
               _Row('Link score', '${node.linkScore}/100'),
               _Row('Loss', '${node.lossPercent}%'),
               _Row('Last seen', _ageFmt.format(node.lastSeen)),
+              if (node.roleLabel.isNotEmpty)
+                _Row('Role', node.roleLabel),
               if (node.isStale) ...[
                 const SizedBox(height: 8),
                 const Text('⚠ Stale — no recent beacon',

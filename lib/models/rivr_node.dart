@@ -10,6 +10,8 @@ class RivrNode extends Equatable {
   final int linkScore;      // 0-100 composite quality score
   final int lossPercent;    // Packet loss %
   final DateTime lastSeen;  // Timestamp of last received frame
+  /// Node role: 0=unknown, 1=client, 2=repeater, 3=gateway
+  final int role;
 
   const RivrNode({
     required this.nodeId,
@@ -20,6 +22,7 @@ class RivrNode extends Equatable {
     required this.linkScore,
     required this.lossPercent,
     required this.lastSeen,
+    this.role = 0,
   });
 
   /// Short display label: callsign if non-empty, else truncated hex ID.
@@ -28,6 +31,18 @@ class RivrNode extends Equatable {
 
   String get nodeIdHex =>
       '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+
+  bool get isRepeater => role == 2;
+  bool get isGateway  => role == 3;
+
+  String get roleLabel {
+    switch (role) {
+      case 2: return 'Repeater';
+      case 3: return 'Gateway';
+      case 1: return 'Client';
+      default: return '';
+    }
+  }
 
   bool get isStale => DateTime.now().difference(lastSeen).inSeconds > 60;
 
@@ -40,6 +55,7 @@ class RivrNode extends Equatable {
     int? linkScore,
     int? lossPercent,
     DateTime? lastSeen,
+    int? role,
   }) {
     return RivrNode(
       nodeId: nodeId ?? this.nodeId,
@@ -50,10 +66,11 @@ class RivrNode extends Equatable {
       linkScore: linkScore ?? this.linkScore,
       lossPercent: lossPercent ?? this.lossPercent,
       lastSeen: lastSeen ?? this.lastSeen,
+      role: role ?? this.role,
     );
   }
 
   @override
   List<Object?> get props =>
-      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen];
+      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen, role];
 }

@@ -389,6 +389,10 @@ class RivrFrameCodec {
 
     // PKT_BEACON: advertises node presence — extract src_id and emit a NodeEvent.
     if (frame.isBeacon) {
+      int beaconRole = 0;
+      if (frame.payload.length >= 12) {
+        beaconRole = frame.payload[11];
+      }
       final node = RivrNode(
         nodeId: frame.srcId,
         callsign: '',
@@ -397,6 +401,7 @@ class RivrFrameCodec {
         hopCount: frame.hopCount,
         linkScore: 0,
         lossPercent: 0,
+        role: beaconRole,
         lastSeen: DateTime.now(),
       );
       return NodeEvent(node);
@@ -598,6 +603,7 @@ class RivrCompanionCodec {
           snrDb: pd.getInt8(5),
           hopCount: payload[6],
           linkScore: payload[7],
+          role: payload[8],
           lossPercent: 0,
           lastSeen: DateTime.now(),
         ));
@@ -644,9 +650,10 @@ class RivrProtocol {
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
   // ── Beacon / node info in ntable output ───────────────────────────────────
-  // Example:  0x1A2B3C4D  ALICE    1  -87  +8  72  15s  123
+  // Example:  0x1A2B3C4D  ALICE    1  -87  +8  72  15s  123    C
+  // Role column (last) is optional: C=client, REP=repeater, GW=gateway.
   static final _ntableRowPattern = RegExp(
-      r'(0x[0-9A-Fa-f]{8})\s+(\S*)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)',
+      r'(0x[0-9A-Fa-f]{8})\s+(\S*)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)(?:\s+\d+\s+\d+\s+(\S+))?',
       caseSensitive: false);
 
   /// Parse one line of firmware output and return an event, or null if the
@@ -678,6 +685,8 @@ class RivrProtocol {
       final rssi = int.tryParse(nbMatch.group(4)!) ?? -120;
       final snr = int.tryParse(nbMatch.group(5)!) ?? 0;
       final score = int.tryParse(nbMatch.group(6)!) ?? 0;
+      final roleStr = nbMatch.group(7)?.toUpperCase() ?? '';
+      final role = roleStr == 'REP' ? 2 : roleStr == 'GW' ? 3 : roleStr == 'C' ? 1 : 0;
       final node = RivrNode(
         nodeId: nodeId,
         callsign: callsign == '-' ? '' : callsign,
@@ -686,6 +695,7 @@ class RivrProtocol {
         hopCount: hops,
         linkScore: score,
         lossPercent: 0,
+        role: role,
         lastSeen: DateTime.now(),
       );
       return NodeEvent(node);

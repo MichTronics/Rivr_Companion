@@ -118,7 +118,9 @@ class _MeshPainter extends CustomPainter {
           color: color,
           radius: 18,
           textColor: Colors.white,
-          rssi: node.rssiDbm);
+          rssi: node.rssiDbm,
+          isRepeater: node.isRepeater,
+          isGateway: node.isGateway);
     }
   }
 
@@ -128,9 +130,28 @@ class _MeshPainter extends CustomPainter {
     required double radius,
     required Color textColor,
     int? rssi,
+    bool isRepeater = false,
+    bool isGateway = false,
   }) {
     final nodePaint = Paint()..color = color;
     canvas.drawCircle(pos, radius, nodePaint);
+
+    // Draw a diamond border around repeaters / gateways
+    if (isRepeater || isGateway) {
+      final borderColor = isGateway ? const Color(0xFF7B1FA2) : const Color(0xFF00695C);
+      final borderPaint = Paint()
+        ..color = borderColor
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke;
+      final d = radius + 5;
+      final path = Path()
+        ..moveTo(pos.dx, pos.dy - d)
+        ..lineTo(pos.dx + d, pos.dy)
+        ..lineTo(pos.dx, pos.dy + d)
+        ..lineTo(pos.dx - d, pos.dy)
+        ..close();
+      canvas.drawPath(path, borderPaint);
+    }
 
     // Label below
     final tp = TextPainter(
@@ -203,16 +224,23 @@ class _Legend extends StatelessWidget {
     final good = nodes.where((n) => n.linkScore >= 70).length;
     final fair = nodes.where((n) => n.linkScore >= 40 && n.linkScore < 70).length;
     final poor = nodes.where((n) => n.linkScore < 40).length;
+    final repeaters = nodes.where((n) => n.isRepeater).length;
+    final gateways = nodes.where((n) => n.isGateway).length;
 
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Wrap(
+          alignment: WrapAlignment.spaceAround,
+          spacing: 12,
           children: [
             _LegendDot(color: Colors.green.shade600, label: 'Good ($good)'),
             _LegendDot(color: Colors.orange.shade600, label: 'Fair ($fair)'),
             _LegendDot(color: Colors.red.shade400, label: 'Poor ($poor)'),
+            if (repeaters > 0)
+              _LegendDiamond(color: const Color(0xFF00695C), label: 'Repeater ($repeaters)'),
+            if (gateways > 0)
+              _LegendDiamond(color: const Color(0xFF7B1FA2), label: 'Gateway ($gateways)'),
             Text('$total nodes', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
@@ -240,4 +268,50 @@ class _LegendDot extends StatelessWidget {
       ],
     );
   }
+}
+
+class _LegendDiamond extends StatelessWidget {
+  final Color color;
+  final String label;
+  const _LegendDiamond({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CustomPaint(
+          size: const Size(10, 10),
+          painter: _DiamondPainter(color: color),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+}
+
+class _DiamondPainter extends CustomPainter {
+  final Color color;
+  const _DiamondPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final path = Path()
+      ..moveTo(cx, 0)
+      ..lineTo(size.width, cy)
+      ..lineTo(cx, size.height)
+      ..lineTo(0, cy)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_DiamondPainter old) => old.color != color;
 }
