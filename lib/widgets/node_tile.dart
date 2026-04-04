@@ -131,7 +131,7 @@ class _ScoreIndicator extends StatelessWidget {
 
     return CircleAvatar(
       radius: 22,
-      backgroundColor: color.withOpacity(0.15),
+      backgroundColor: color.withValues(alpha: 0.15),
       child: Text(
         '$score',
         style: TextStyle(

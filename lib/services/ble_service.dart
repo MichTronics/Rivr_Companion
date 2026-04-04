@@ -10,10 +10,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../protocol/rivr_protocol.dart';
 import 'connection_manager.dart';
 
-// ignore: avoid_print
 void _bleLog(String msg, {bool error = false}) {
   // print() → logcat I/flutter (filter: adb logcat -s flutter | grep RIVR_BLE)
   // dev.log() → Dart DevTools Log view
+  // ignore: avoid_print
   print('[RIVR_BLE] $msg');
   dev.log(msg, name: 'RIVR_BLE', level: error ? 1000 : 800);
 }

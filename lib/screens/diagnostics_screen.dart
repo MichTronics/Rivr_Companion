@@ -81,7 +81,7 @@ class _OverviewTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
             // Node & connection
-            _SectionHeader('Node'),
+            const _SectionHeader('Node'),
             _InfoRow('Node ID',
                 latest.nodeId != 0
                     ? '0x${latest.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}'
@@ -93,7 +93,7 @@ class _OverviewTab extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Radio health
-            _SectionHeader('Radio'),
+            const _SectionHeader('Radio'),
             Row(children: [
               Expanded(
                 child: MetricCard(
@@ -169,7 +169,7 @@ class _OverviewTab extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Relay pipeline
-            _SectionHeader('Relay pipeline'),
+            const _SectionHeader('Relay pipeline'),
             Row(children: [
               Expanded(
                 child: MetricCard(
@@ -195,14 +195,14 @@ class _OverviewTab extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Packet stats
-            _SectionHeader('Packet stats'),
+            const _SectionHeader('Packet stats'),
             _InfoRow('TX total',        '${latest.txTotal}'),
             _InfoRow('RX total',        '${latest.rxTotal}'),
             _InfoRow('Route cache',     '${latest.routeCache} entries'),
             _InfoRow('Cache hit / miss','${latest.routeCacheHit} / ${latest.routeCacheMiss}'),
             const SizedBox(height: 12),
 
-            _SectionHeader('Drop counters'),
+            const _SectionHeader('Drop counters'),
             _InfoRow('Decode fail',     '${latest.rxDecodeFail}'),
             _InfoRow('Dedupe drop',     '${latest.rxDedupeDrop}'),
             _InfoRow('TTL drop',        '${latest.rxTtlDrop}'),
@@ -214,20 +214,20 @@ class _OverviewTab extends StatelessWidget {
             _InfoRow('Loop detect',     '${latest.loopDetectDrop}'),
             const SizedBox(height: 12),
 
-            _SectionHeader('Radio hardware'),
+            const _SectionHeader('Radio hardware'),
             _InfoRow('Hard resets',     '${latest.radioHardReset}'),
             _InfoRow('TX failures',     '${latest.radioTxFail}'),
             _InfoRow('CRC errors',      '${latest.radioCrcFail}'),
             const SizedBox(height: 12),
 
-            _SectionHeader('ACK / Retry'),
+            const _SectionHeader('ACK / Retry'),
             _InfoRow('ACK TX / RX',    '${latest.ackTx} / ${latest.ackRx}'),
             _InfoRow('Retry attempts',  '${latest.retryAttempt}'),
             _InfoRow('Retry OK / fail', '${latest.retrySuccess} / ${latest.retryFail}'),
             const SizedBox(height: 16),
 
             // BLE-specific counters (§11: ble_conn, ble_rx, ble_tx, ble_err)
-            _SectionHeader('BLE transport'),
+            const _SectionHeader('BLE transport'),
             Row(children: [
               Expanded(
                 child: MetricCard(
@@ -429,7 +429,7 @@ class _ChartCard extends StatelessWidget {
                     dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: color.withOpacity(0.12),
+                      color: color.withValues(alpha: 0.12),
                     ),
                   ),
                 ],

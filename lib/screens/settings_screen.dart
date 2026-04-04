@@ -163,7 +163,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           // ── About ─────────────────────────────────────────────────────────
-          _SettingsSection(
+          const _SettingsSection(
             title: 'About',
             children: const [
               ListTile(
