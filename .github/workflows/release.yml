@@ -1,0 +1,164 @@
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  Rivr Companion – Release Pipeline                                       ║
+# ║                                                                          ║
+# ║  Triggered by: git tag push matching  v*  (e.g. v1.2.0)                 ║
+# ║                                                                          ║
+# ║  Pipeline overview:                                                      ║
+# ║    1. Build Linux desktop  → rivr_companion_linux_<tag>.zip             ║
+# ║    2. Build Windows desktop → rivr_companion_windows_<tag>.zip          ║
+# ║    3. Build Android APK    → rivr_companion_android_<tag>.apk           ║
+# ║    4. Publish GitHub Release with all three artefacts attached           ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Linux desktop ───────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev libbluetooth-dev \
+            libusb-1.0-0-dev libserialport-dev
+
+      - name: Get pub dependencies
+        run: flutter pub get
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      - name: Package Linux ZIP
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          cd build/linux/x64/release
+          zip -r "../../../../rivr_companion_linux_${TAG}.zip" bundle/
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-linux
+          path: rivr_companion_linux_*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Windows desktop ─────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get pub dependencies
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        run: flutter build windows --release
+
+      - name: Package Windows ZIP
+        shell: pwsh
+        run: |
+          $tag = "$env:GITHUB_REF_NAME"
+          Compress-Archive `
+            -Path "build\windows\x64\runner\Release\*" `
+            -DestinationPath "rivr_companion_windows_${tag}.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-windows
+          path: rivr_companion_windows_*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Android APK ─────────────────────────────────────────────────────────
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Get pub dependencies
+        run: flutter pub get
+
+      - name: Build Android APK (release)
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "rivr_companion_android_${TAG}.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-android
+          path: rivr_companion_android_*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Publish GitHub Release ───────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-windows, build-android]
+    steps:
+      - name: Download all artefacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: companion-*
+          path: dist
+          merge-multiple: true
+
+      - name: List artefacts
+        run: ls -lh dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Rivr Companion ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: dist/*
