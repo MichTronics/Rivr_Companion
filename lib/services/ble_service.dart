@@ -64,6 +64,8 @@ class BleService extends RivrTransport {
   int _reconnectAttempt = 0;
   static const _reconnectDelays = [1, 2, 5];
   bool _companionReady = false;
+  final RivrBleReassembler _rxReassembler = RivrBleReassembler();
+  int _txFragmentMessageId = 0;
 
   BleService({required this.phoneNodeId});
 
@@ -237,6 +239,7 @@ class BleService extends RivrTransport {
     _writeChar = null;
     _notifyChar = null;
     if (!_wasConnected || _reconnectAttempt >= _reconnectDelays.length) {
+      _rxReassembler.reset();
       _emit(ConnectionStatus.disconnected, deviceId);
       return;
     }
@@ -280,6 +283,10 @@ class BleService extends RivrTransport {
       await char.setNotifyValue(true);
     } catch (e) {
       if (_isAuthError(e)) {
+        if (await _repairStaleBond(device, 'setNotifyValue')) {
+          await char.setNotifyValue(true);
+          return;
+        }
         _bleLog(
             'setNotifyValue: authentication required — triggering OS bond dialog');
         await _ensureBonded(device, 'setNotifyValue');
@@ -311,10 +318,23 @@ class BleService extends RivrTransport {
   // ── Receive: binary Rivr frames ───────────────────────────────────────────
 
   void _onBytes(List<int> bytes) {
-    final packet = Uint8List.fromList(bytes);
+    final raw = Uint8List.fromList(bytes);
+    Uint8List? packet;
+
+    try {
+      packet = _rxReassembler.ingest(raw);
+    } on FormatException catch (e) {
+      _bleLog('dropping invalid BLE fragment stream: $e', error: true);
+      return;
+    }
+    if (packet == null) {
+      return;
+    }
+
     if (RivrCompanionCodec.isCompanionPacket(packet)) {
       _safeAddEvent(
-        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'RX')),
+        RawLineEvent(
+            RivrCompanionCodec.describePacket(packet, direction: 'RX')),
       );
       final event = RivrCompanionCodec.parsePacket(packet);
       if (event != null) _safeAddEvent(event);
@@ -356,14 +376,16 @@ class BleService extends RivrTransport {
     } else if (command == RivrProtocol.cmdNtable) {
       packet = RivrCompanionCodec.buildGetNeighbors();
       _safeAddEvent(
-        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+        RawLineEvent(
+            RivrCompanionCodec.describePacket(packet, direction: 'TX')),
       );
     } else if (command.startsWith('set callsign ')) {
       final callsign = command.substring('set callsign '.length).trimRight();
       if (callsign.isEmpty) return;
       packet = RivrCompanionCodec.buildSetCallsign(callsign);
       _safeAddEvent(
-        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+        RawLineEvent(
+            RivrCompanionCodec.describePacket(packet, direction: 'TX')),
       );
     } else {
       return;
@@ -395,6 +417,7 @@ class BleService extends RivrTransport {
     _writeChar = null;
     _notifyChar = null;
     _companionReady = false;
+    _rxReassembler.reset();
     _seenScanIds.clear();
     _emit(ConnectionStatus.disconnected, '');
   }
@@ -417,6 +440,7 @@ class BleService extends RivrTransport {
     await _bondSub?.cancel();
     await _device?.disconnect();
     _companionReady = false;
+    _rxReassembler.reset();
   }
 
   Future<void> _startCompanionSession() async {
@@ -430,25 +454,57 @@ class BleService extends RivrTransport {
     if (_writeChar == null || _device == null) return;
     if (logTx && RivrCompanionCodec.isCompanionPacket(packet)) {
       _safeAddEvent(
-        RawLineEvent(RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+        RawLineEvent(
+            RivrCompanionCodec.describePacket(packet, direction: 'TX')),
       );
     }
-    final value = packet.toList();
-    try {
-      await _writeChar!.write(
-        value,
-        withoutResponse: _writeChar!.properties.writeWithoutResponse,
-      );
-    } catch (e) {
-      if (!_isAuthError(e)) rethrow;
-      _bleLog(
-          'writeCharacteristic: authentication required — triggering OS bond dialog');
-      await _ensureBonded(_device!, 'writeCharacteristic');
-      await _writeChar!.write(
-        value,
-        withoutResponse: _writeChar!.properties.writeWithoutResponse,
-      );
+    final payloadLimit = _blePayloadLimit();
+    final messageId = _nextFragmentMessageId();
+
+    for (final fragment in RivrBleFragmentCodec.encode(
+      packet,
+      linkPayloadLimit: payloadLimit,
+      messageId: messageId,
+    )) {
+      final value = fragment.toList();
+      try {
+        await _writeChar!.write(
+          value,
+          withoutResponse: _writeChar!.properties.writeWithoutResponse,
+        );
+      } catch (e) {
+        if (!_isAuthError(e)) rethrow;
+        if (await _repairStaleBond(_device!, 'writeCharacteristic')) {
+          await _writeChar!.write(
+            value,
+            withoutResponse: _writeChar!.properties.writeWithoutResponse,
+          );
+          continue;
+        }
+        _bleLog(
+            'writeCharacteristic: authentication required — triggering OS bond dialog');
+        await _ensureBonded(_device!, 'writeCharacteristic');
+        await _writeChar!.write(
+          value,
+          withoutResponse: _writeChar!.properties.writeWithoutResponse,
+        );
+      }
     }
+  }
+
+  int _blePayloadLimit() {
+    final device = _device;
+    if (device == null) return 20;
+    final mtu = device.mtuNow.clamp(23, 247);
+    return mtu - 3;
+  }
+
+  int _nextFragmentMessageId() {
+    _txFragmentMessageId = (_txFragmentMessageId + 1) & 0xFF;
+    if (_txFragmentMessageId == 0) {
+      _txFragmentMessageId = 1;
+    }
+    return _txFragmentMessageId;
   }
 
   Future<void> _ensurePermissions() async {
@@ -533,6 +589,34 @@ class BleService extends RivrTransport {
     }
   }
 
+  Future<bool> _repairStaleBond(BluetoothDevice device, String reason) async {
+    if (!Platform.isAndroid) return false;
+
+    final current = await _currentBondState(device);
+    if (current != BluetoothBondState.bonded) {
+      return false;
+    }
+
+    _bleLog(
+        '$reason: auth failed on an already bonded link — removing stale Android bond');
+    try {
+      await device.removeBond();
+    } catch (e) {
+      _bleLog('$reason: removeBond() failed: $e', error: true);
+      return false;
+    }
+
+    final cleared = await _waitForBondCleared(device);
+    if (!cleared) {
+      _bleLog('$reason: Android bond did not clear after removeBond()',
+          error: true);
+      return false;
+    }
+
+    await _ensureBonded(device, '$reason repair');
+    return true;
+  }
+
   Future<bool?> _waitForBondingToFinishIfActive(
       BluetoothDevice device, String reason) async {
     if (!Platform.isAndroid) return true;
@@ -573,6 +657,23 @@ class BleService extends RivrTransport {
       return state == BluetoothBondState.bonded;
     } on TimeoutException {
       _bleLog('bonding timed out waiting for BONDED state', error: true);
+      return false;
+    }
+  }
+
+  Future<bool> _waitForBondCleared(BluetoothDevice device) async {
+    if (!Platform.isAndroid) return true;
+
+    final current = await _currentBondState(device);
+    if (current == BluetoothBondState.none) return true;
+
+    try {
+      final state = await device.bondState
+          .firstWhere((s) => s == BluetoothBondState.none)
+          .timeout(const Duration(seconds: 20));
+      return state == BluetoothBondState.none;
+    } on TimeoutException {
+      _bleLog('bond removal timed out waiting for NONE state', error: true);
       return false;
     }
   }

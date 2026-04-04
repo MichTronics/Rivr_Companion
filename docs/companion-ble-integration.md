@@ -260,12 +260,12 @@ final sub = _ble.subscribeToCharacteristic(txChar).listen((data) {
    - Use **Write Without Response** for lower latency (`BLE_GATT_CHR_F_WRITE_NO_RSP`).
    - Use **Write With Response** if you want delivery confirmation from the node.
 8. Maximum write size: `negotiated_mtu - 3` bytes per write.  For Rivr frames ≤ 125 bytes,
-   a single write is sufficient after MTU negotiation to 128.  For frames up to 255 bytes,
-   negotiate to 247+.
+   a single write is sufficient after MTU negotiation to 128.  Larger payloads are
+   fragmented automatically by the BLE transport and reassembled on the peer.
 
-> ⚠ **No fragmentation layer exists in the firmware.** Each write must be a single, complete
-> Rivr frame.  Do not split a frame across multiple writes and do not send multiple frames in
-> one write.
+> BLE fragmentation uses a 6-byte Rivr transport header and only activates when a complete
+> Rivr frame or companion packet does not fit in one ATT write/notify.  The reassembler keeps
+> a small set of concurrent fragment streams so overlapping companion and mesh traffic can complete cleanly.
 
 ---
 
@@ -408,7 +408,7 @@ support (`flutter_reactive_ble` does not support Windows as of 2026).
 | Limitation | Detail |
 |---|---|
 | **One client at a time** | Rivr currently tracks a single active BLE connection. A second phone cannot connect while one is already connected. |
-| **No fragmentation** | Each BLE write / notify is exactly one complete Rivr frame. Frames > (`mtu - 3`) cannot be carried without MTU negotiation. |
+| **Fragmentation overhead** | Oversize payloads are fragmented automatically, but each fragment carries a 6-byte Rivr BLE transport header. |
 | **No encryption** | BLE traffic is plaintext. See Section 10. |
 | **Activation window** | BLE is not always on. See Section 4. |
 | **No phone↔phone relay** | Frames injected via BLE are processed by the connected node only; they do not bypass the node's relay policy. A PKT_CHAT written by the phone is subject to the same duty-cycle and relay rules as any LoRa frame. |

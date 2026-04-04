@@ -43,6 +43,11 @@ const int _kPktMetrics = 11;
 const int _kCompanionMagic = 0x4352; // 'RC' little-endian
 const int _kCompanionVersion = 1;
 const int _kCompanionHdrLen = 5;
+const int _kBleFragMagic0 = 0x52; // 'R'
+const int _kBleFragMagic1 = 0x42; // 'B'
+const int _kBleFragVersion = 1;
+const int _kBleFragHdrLen = 6;
+const int _kBleFragRxSlots = 4;
 
 const int _kCpCmdAppStart = 0x01;
 const int _kCpCmdDeviceQuery = 0x02;
@@ -55,6 +60,170 @@ const int _kCpPktDeviceInfo = 0x82;
 const int _kCpPktNodeInfo = 0x83;
 const int _kCpPktNodeListDone = 0x84;
 const int _kCpPktChatRx = 0x85;
+
+class RivrBleReassembler {
+  final List<_BleFragmentSlot> _slots =
+      List.generate(_kBleFragRxSlots, (_) => _BleFragmentSlot());
+  int _nextSlot = 0;
+
+  static bool isFragmentPacket(Uint8List bytes) {
+    if (bytes.length < _kBleFragHdrLen) return false;
+    return bytes[0] == _kBleFragMagic0 &&
+        bytes[1] == _kBleFragMagic1 &&
+        bytes[2] == _kBleFragVersion;
+  }
+
+  void reset() {
+    for (final slot in _slots) {
+      slot.reset();
+    }
+    _nextSlot = 0;
+  }
+
+  Uint8List? ingest(Uint8List packet) {
+    if (!isFragmentPacket(packet)) {
+      return packet;
+    }
+
+    final messageId = packet[3];
+    final offset = packet[4];
+    final totalLen = packet[5];
+    final fragmentLen = packet.length - _kBleFragHdrLen;
+
+    if (totalLen == 0 || totalLen > 255) {
+      throw const FormatException('Invalid BLE fragment total length');
+    }
+    if (fragmentLen == 0 || offset >= totalLen) {
+      throw const FormatException('Invalid BLE fragment layout');
+    }
+    if (offset + fragmentLen > totalLen) {
+      throw const FormatException('BLE fragment overruns total length');
+    }
+
+    var slot = _findSlot(messageId);
+    if (slot == null) {
+      if (offset != 0) {
+        throw const FormatException('BLE fragment stream started mid-message');
+      }
+      slot = _allocSlot();
+      slot.start(messageId, totalLen);
+    } else if (offset == 0) {
+      slot.start(messageId, totalLen);
+    } else if (slot.totalLen != totalLen) {
+      slot.reset();
+      throw const FormatException(
+          'BLE fragment total length changed mid-stream');
+    }
+
+    if (offset != slot.receivedLen) {
+      slot.reset();
+      throw const FormatException('BLE fragment stream is out of order');
+    }
+
+    final buffer = slot.buffer!;
+    buffer.setRange(
+      offset,
+      offset + fragmentLen,
+      packet,
+      _kBleFragHdrLen,
+    );
+    slot.receivedLen += fragmentLen;
+
+    if (slot.receivedLen < totalLen) {
+      return null;
+    }
+
+    final completed = Uint8List.fromList(buffer);
+    slot.reset();
+    return completed;
+  }
+
+  _BleFragmentSlot? _findSlot(int messageId) {
+    for (final slot in _slots) {
+      if (slot.active && slot.messageId == messageId) {
+        return slot;
+      }
+    }
+    return null;
+  }
+
+  _BleFragmentSlot _allocSlot() {
+    for (final slot in _slots) {
+      if (!slot.active) {
+        return slot;
+      }
+    }
+
+    final slot = _slots[_nextSlot];
+    _nextSlot = (_nextSlot + 1) % _slots.length;
+    slot.reset();
+    return slot;
+  }
+}
+
+class _BleFragmentSlot {
+  bool active = false;
+  int? messageId;
+  int? totalLen;
+  int receivedLen = 0;
+  Uint8List? buffer;
+
+  void reset() {
+    active = false;
+    messageId = null;
+    totalLen = null;
+    receivedLen = 0;
+    buffer = null;
+  }
+
+  void start(int newMessageId, int newTotalLen) {
+    active = true;
+    messageId = newMessageId;
+    totalLen = newTotalLen;
+    receivedLen = 0;
+    buffer = Uint8List(newTotalLen);
+  }
+}
+
+class RivrBleFragmentCodec {
+  static Iterable<Uint8List> encode(Uint8List payload,
+      {required int linkPayloadLimit, required int messageId}) sync* {
+    if (payload.isEmpty || payload.length > 255) {
+      throw const FormatException('BLE payload length out of range');
+    }
+    if (linkPayloadLimit <= 0) {
+      throw const FormatException('BLE payload limit unavailable');
+    }
+    if (payload.length <= linkPayloadLimit) {
+      yield payload;
+      return;
+    }
+    if (linkPayloadLimit <= _kBleFragHdrLen) {
+      throw const FormatException('BLE payload limit too small for fragments');
+    }
+
+    final fragmentPayloadLimit = linkPayloadLimit - _kBleFragHdrLen;
+    for (var offset = 0;
+        offset < payload.length;
+        offset += fragmentPayloadLimit) {
+      final chunkLen = min(fragmentPayloadLimit, payload.length - offset);
+      final fragment = Uint8List(_kBleFragHdrLen + chunkLen);
+      fragment[0] = _kBleFragMagic0;
+      fragment[1] = _kBleFragMagic1;
+      fragment[2] = _kBleFragVersion;
+      fragment[3] = messageId & 0xFF;
+      fragment[4] = offset & 0xFF;
+      fragment[5] = payload.length & 0xFF;
+      fragment.setRange(
+        _kBleFragHdrLen,
+        fragment.length,
+        payload,
+        offset,
+      );
+      yield fragment;
+    }
+  }
+}
 
 /// A decoded binary Rivr frame (§6 of the BLE integration guide).
 class RivrFrame {
@@ -376,8 +545,8 @@ class RivrCompanionCodec {
 
   static Uint8List buildAppStart() => _buildPacket(_kCpCmdAppStart);
   static Uint8List buildDeviceQuery() => _buildPacket(_kCpCmdDeviceQuery);
-  static Uint8List buildSetCallsign(String callsign) =>
-      _buildPacket(_kCpCmdSetCallsign, Uint8List.fromList(utf8.encode(callsign)));
+  static Uint8List buildSetCallsign(String callsign) => _buildPacket(
+      _kCpCmdSetCallsign, Uint8List.fromList(utf8.encode(callsign)));
   static Uint8List buildGetNeighbors() => _buildPacket(_kCpCmdGetNeighbors);
 
   static String describePacket(Uint8List bytes, {required String direction}) {
@@ -403,14 +572,16 @@ class RivrCompanionCodec {
     switch (type) {
       case _kCpPktOk:
         final cmd = payload.isNotEmpty ? payload[0] : 0;
-        return RawLineEvent('BLE_CP:ok:0x${cmd.toRadixString(16).padLeft(2, '0')}');
+        return RawLineEvent(
+            'BLE_CP:ok:0x${cmd.toRadixString(16).padLeft(2, '0')}');
 
       case _kCpPktErr:
         final cmd = payload.isNotEmpty ? payload[0] : 0;
         final msg = payload.length > 1
             ? utf8.decode(payload.sublist(1), allowMalformed: true)
             : 'error';
-        return RawLineEvent('BLE_CP:err:0x${cmd.toRadixString(16).padLeft(2, '0')}:$msg');
+        return RawLineEvent(
+            'BLE_CP:err:0x${cmd.toRadixString(16).padLeft(2, '0')}:$msg');
 
       case _kCpPktDeviceInfo:
         return RawLineEvent(
@@ -437,7 +608,8 @@ class RivrCompanionCodec {
       case _kCpPktChatRx:
         if (payload.length < 5) return null;
         final srcId = pd.getUint32(0, Endian.little);
-        final text = utf8.decode(payload.sublist(4), allowMalformed: true).trim();
+        final text =
+            utf8.decode(payload.sublist(4), allowMalformed: true).trim();
         if (text.isEmpty) return null;
         final srcHex =
             '0x${srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
