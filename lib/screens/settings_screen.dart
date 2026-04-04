@@ -165,7 +165,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // ── About ─────────────────────────────────────────────────────────
           const _SettingsSection(
             title: 'About',
-            children: const [
+            children: [
               ListTile(
                 leading: Icon(Icons.info_outline),
                 title: Text('Rivr Companion'),
