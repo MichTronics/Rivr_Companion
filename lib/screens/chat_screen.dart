@@ -161,7 +161,7 @@ class _ChatBubble extends StatelessWidget {
         child: Center(
           child: Text(
             message.text,
-            style: theme.textTheme.bodySmall?.copyWith(color: cs.outline),
+            style: theme.textTheme.bodyMedium?.copyWith(color: cs.outline),
           ),
         ),
       );
@@ -185,14 +185,16 @@ class _ChatBubble extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 4, bottom: 2),
                   child: Text(
                     message.senderName,
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: cs.secondary),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: cs.secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               // Bubble
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
                   color: isLocal ? cs.primary : cs.surfaceContainerHighest,
                   borderRadius: BorderRadius.only(
@@ -206,8 +208,9 @@ class _ChatBubble extends StatelessWidget {
                 ),
                 child: Text(
                   message.text,
-                  style: theme.textTheme.bodyMedium?.copyWith(
+                  style: theme.textTheme.bodyLarge?.copyWith(
                     color: isLocal ? cs.onPrimary : cs.onSurface,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),
@@ -218,7 +221,7 @@ class _ChatBubble extends StatelessWidget {
                   _timeFmt.format(message.timestamp),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: cs.outline,
-                    fontSize: 10,
+                    fontSize: 11,
                   ),
                 ),
               ),
