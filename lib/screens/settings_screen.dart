@@ -169,7 +169,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: Icon(Icons.info_outline),
                 title: Text('Rivr Companion'),
-                subtitle: Text('v1.0.0 — open-source LoRa mesh companion'),
+                subtitle: Text('v0.1.0 — open-source LoRa mesh companion'),
               ),
             ],
           ),
