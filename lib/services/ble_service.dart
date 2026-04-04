@@ -161,11 +161,27 @@ class BleService extends RivrTransport {
       });
 
       await _startBondMonitoring(device);
-      final initialBondResult =
-          await _waitForBondingToFinishIfActive(device, 'connect');
-      if (initialBondResult == false) {
-        throw Exception(
-            'BLE pairing failed. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+
+      // For a first-time peer the firmware calls esp_ble_set_encryption(MITM)
+      // immediately in ESP_GATTS_CONNECT_EVT, which triggers the Android
+      // pairing dialog shortly after GATT connects.  Bond state starts at
+      // 'none', so the old _waitForBondingToFinishIfActive() returned null
+      // immediately and we rushed into discoverServices/setNotifyValue — both
+      // of which require an authenticated link and fail while the user is still
+      // reading the PIN off the node display.
+      // Fix: if not already bonded, block here until bonding completes (or
+      // fails) before touching any GATT operations.
+      if (Platform.isAndroid) {
+        final bondNow = await _currentBondState(device);
+        if (bondNow != BluetoothBondState.bonded) {
+          _bleLog('connect: first-time peer — waiting for pairing to complete');
+          _emit(ConnectionStatus.connecting, 'Waiting for pairing…');
+          final bonded = await _waitForBondOrTimeout(device, 'connect');
+          if (!bonded) {
+            throw Exception(
+                'BLE pairing failed. Confirm the Android pairing dialog and enter the PIN shown on the node display.');
+          }
+        }
       }
 
       // MTU negotiation — min Rivr frame is 25 bytes, ATT default is 20 bytes.
@@ -657,6 +673,31 @@ class BleService extends RivrTransport {
       return state == BluetoothBondState.bonded;
     } on TimeoutException {
       _bleLog('bonding timed out waiting for BONDED state', error: true);
+      return false;
+    }
+  }
+
+  /// Wait for bonding to complete regardless of starting state.
+  ///
+  /// Unlike [_waitForBondingToFinishIfActive] this also handles the case where
+  /// bonding has not started yet (state = none) — e.g. when the firmware
+  /// triggers pairing asynchronously a moment after GATT connect.
+  /// Returns true if the device ends up bonded, false on failure or timeout.
+  Future<bool> _waitForBondOrTimeout(BluetoothDevice device, String reason) async {
+    if (!Platform.isAndroid) return true;
+    bool seenBonding = false;
+    try {
+      final state = await device.bondState.firstWhere((s) {
+        if (s == BluetoothBondState.bonding) seenBonding = true;
+        if (s == BluetoothBondState.bonded) return true;
+        // Bonding started but reverted to none → pairing was rejected/failed.
+        if (seenBonding && s == BluetoothBondState.none) return true;
+        return false;
+      }).timeout(const Duration(seconds: 60));
+      _bleLog('$reason: bond state settled as $state');
+      return state == BluetoothBondState.bonded;
+    } on TimeoutException {
+      _bleLog('$reason: pairing timed out waiting for BONDED state', error: true);
       return false;
     }
   }
