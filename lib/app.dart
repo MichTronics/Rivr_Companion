@@ -26,15 +26,102 @@ class RivrApp extends ConsumerWidget {
   }
 
   ThemeData _buildTheme(Brightness brightness) {
-    final base = brightness == Brightness.dark
-        ? ThemeData.dark(useMaterial3: true)
-        : ThemeData.light(useMaterial3: true);
-    return base.copyWith(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF1B6CA8),
-        brightness: brightness,
-      ),
-    );
+    // Rivr website palette
+    const primary = Color(0xFF6C63FF);   // --accent
+    const secondary = Color(0xFF00E5A0); // --green
+    const error = Color(0xFFFF5252);     // --red
+    const warning = Color(0xFFFFCA28);   // --yellow
+
+    if (brightness == Brightness.dark) {
+      const bg       = Color(0xFF0A0A0F); // --background
+      const surface  = Color(0xFF12121A); // --surface
+      const surface2 = Color(0xFF1A1A26); // --surface-2
+      const fg       = Color(0xFFE8EAF6); // --foreground
+      const muted    = Color(0xFF8B8FA8); // --text-muted
+      const border   = Color(0x336C63FF); // rgba(108,99,255,0.2)
+
+      final cs = ColorScheme.fromSeed(
+        seedColor: primary,
+        brightness: Brightness.dark,
+      ).copyWith(
+        primary: primary,
+        onPrimary: Colors.white,
+        primaryContainer: surface2,
+        onPrimaryContainer: fg,
+        secondary: secondary,
+        onSecondary: bg,
+        secondaryContainer: surface,
+        onSecondaryContainer: fg,
+        tertiary: warning,
+        onTertiary: bg,
+        error: error,
+        onError: Colors.white,
+        surface: surface,
+        onSurface: fg,
+        onSurfaceVariant: muted,
+        outline: border,
+        outlineVariant: const Color(0x1A6C63FF),
+      );
+
+      return ThemeData(
+        useMaterial3: true,
+        colorScheme: cs,
+        scaffoldBackgroundColor: bg,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: surface,
+          foregroundColor: fg,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: surface,
+          indicatorColor: const Color(0x286C63FF),
+          iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+            color: states.contains(WidgetState.selected) ? primary : muted,
+          )),
+          labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+            color: states.contains(WidgetState.selected) ? primary : muted,
+            fontSize: 12,
+          )),
+        ),
+        cardTheme: CardThemeData(
+          color: surface2,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: border),
+          ),
+        ),
+        dividerTheme: const DividerThemeData(color: border, space: 1),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: surface2,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: primary, width: 1.5),
+          ),
+        ),
+      );
+    } else {
+      return ThemeData.light(useMaterial3: true).copyWith(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: Brightness.light,
+        ).copyWith(
+          secondary: secondary,
+          tertiary: warning,
+          error: error,
+        ),
+      );
+    }
   }
 }
 

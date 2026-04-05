@@ -138,7 +138,7 @@ class _MeshPainter extends CustomPainter {
 
     // Draw a diamond border around repeaters / gateways
     if (isRepeater || isGateway) {
-      final borderColor = isGateway ? const Color(0xFF7B1FA2) : const Color(0xFF00695C);
+      final borderColor = isGateway ? const Color(0xFF6C63FF) : const Color(0xFF00E5A0);
       final borderPaint = Paint()
         ..color = borderColor
         ..strokeWidth = 2.5
@@ -234,13 +234,13 @@ class _Legend extends StatelessWidget {
           alignment: WrapAlignment.spaceAround,
           spacing: 12,
           children: [
-            _LegendDot(color: Colors.green.shade600, label: 'Good ($good)'),
-            _LegendDot(color: Colors.orange.shade600, label: 'Fair ($fair)'),
-            _LegendDot(color: Colors.red.shade400, label: 'Poor ($poor)'),
+            _LegendDot(color: const Color(0xFF00E5A0), label: 'Good ($good)'),
+            _LegendDot(color: const Color(0xFFFFCA28), label: 'Fair ($fair)'),
+            _LegendDot(color: const Color(0xFFFF5252), label: 'Poor ($poor)'),
             if (repeaters > 0)
-              _LegendDiamond(color: const Color(0xFF00695C), label: 'Repeater ($repeaters)'),
+              _LegendDiamond(color: const Color(0xFF00E5A0), label: 'Repeater ($repeaters)'),
             if (gateways > 0)
-              _LegendDiamond(color: const Color(0xFF7B1FA2), label: 'Gateway ($gateways)'),
+              _LegendDiamond(color: const Color(0xFF6C63FF), label: 'Gateway ($gateways)'),
             Text('$total nodes', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
