@@ -378,7 +378,24 @@ class BleService extends RivrTransport {
     if (_writeChar == null || _device == null) return;
     Uint8List? packet;
 
-    if (command.startsWith('chat ')) {
+    if (command.startsWith('chan ')) {
+      // 'chan <N> <text>' — channel-aware PKT_CHAT with PKT_FLAG_CHANNEL prefix
+      final rest = command.substring(5).trimRight();
+      final spaceIdx = rest.indexOf(' ');
+      if (spaceIdx < 1) return;
+      final channelId = int.tryParse(rest.substring(0, spaceIdx));
+      final text = rest.substring(spaceIdx + 1);
+      if (channelId == null || channelId <= 0 || text.isEmpty) return;
+      packet = RivrFrameCodec.buildChatFrame(
+        srcId: phoneNodeId,
+        seq: _seq++,
+        text: text,
+        channelId: channelId,
+      );
+      _safeAddEvent(
+        RawLineEvent(RivrFrameCodec.describeFrame(packet, direction: 'TX')),
+      );
+    } else if (command.startsWith('chat ')) {
       final text = command.substring(5).trimRight();
       if (text.isEmpty) return;
       packet = RivrFrameCodec.buildChatFrame(

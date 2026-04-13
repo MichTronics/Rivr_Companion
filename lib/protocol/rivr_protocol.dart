@@ -521,20 +521,36 @@ class RivrFrameCodec {
   ///
   /// [srcId] must be the phone's persistent virtual node ID.
   /// [seq] is the per-origin incrementing sequence counter.
+  /// [channelId] when > 0 sets PKT_FLAG_CHANNEL and prepends the 2-byte
+  /// channel_id LE header to the payload.
   static Uint8List buildChatFrame({
     required int srcId,
     required int seq,
     required String text,
     int dstId = _kBroadcast,
+    int channelId = 0,
   }) {
-    // PKT_CHAT payload is raw UTF-8 text — no header prefix
-    final payload = Uint8List.fromList(utf8.encode(text));
+    final textBytes = utf8.encode(text);
+    final Uint8List payload;
+    final int flags;
+
+    if (channelId > 0) {
+      // PKT_FLAG_CHANNEL = 0x08: prepend u16 LE channel_id
+      payload = Uint8List(2 + textBytes.length)
+        ..[0] = channelId & 0xFF
+        ..[1] = (channelId >> 8) & 0xFF;
+      payload.setRange(2, payload.length, textBytes);
+      flags = 0x08;
+    } else {
+      payload = Uint8List.fromList(textBytes);
+      flags = 0;
+    }
 
     return RivrFrame(
       magic: _kMagic,
       version: _kVersion,
       pktType: _kPktChat,
-      flags: 0,
+      flags: flags,
       ttl: _kTtlDefault,
       srcId: srcId,
       dstId: dstId,
@@ -635,10 +651,21 @@ class RivrCompanionCodec {
         return RawLineEvent('BLE_CP:nodes:done');
 
       case _kCpPktChatRx:
+        // Payload layout (updated firmware):
+        //   [0-3]  src_id      u32 LE
+        //   [4-5]  channel_id  u16 LE  (0 = Global / legacy build)
+        //   [6+]   text        UTF-8
+        // Legacy firmware omits bytes [4-5]; guard with length check.
         if (payload.length < 5) return null;
         final srcId = pd.getUint32(0, Endian.little);
+        int chatChanId = 0;
+        int textOffset = 4;
+        if (payload.length >= 7) {
+          chatChanId = payload[4] | (payload[5] << 8);
+          textOffset = 6;
+        }
         final text =
-            utf8.decode(payload.sublist(4), allowMalformed: true).trim();
+            utf8.decode(payload.sublist(textOffset), allowMalformed: true).trim();
         if (text.isEmpty) return null;
         final srcHex =
             '0x${srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
@@ -649,6 +676,7 @@ class RivrCompanionCodec {
           senderName: srcHex,
           timestamp: DateTime.now(),
           origin: MessageOrigin.remote,
+          channelId: chatChanId,
         ));
     }
 
@@ -735,6 +763,8 @@ class RivrProtocol {
       final nodeId = _parseHex(srcStr) ?? 0;
       final text = (m['text'] as String? ?? '').trim();
       if (text.isEmpty) return null;
+      // 'chan' field is emitted by updated firmware; absent in v1 legacy nodes → 0.
+      final channelId = (m['chan'] as num?)?.toInt() ?? 0;
       final name =
           '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
       final msg = ChatMessage(
@@ -744,6 +774,7 @@ class RivrProtocol {
         senderName: name,
         timestamp: DateTime.now(),
         origin: MessageOrigin.remote,
+        channelId: channelId,
       );
       return ChatEvent(msg);
     } catch (_) {
