@@ -67,6 +67,13 @@ class BleService extends RivrTransport {
   final RivrBleReassembler _rxReassembler = RivrBleReassembler();
   int _txFragmentMessageId = 0;
 
+  /// Node ID of the connected hardware — set from DEVICE_INFO on session start.
+  /// Falls back to phoneNodeId until DEVICE_INFO is received.
+  int? _connectedNodeId;
+
+  /// Effective srcId for outgoing frames: hardware node ID once known.
+  int get _srcId => _connectedNodeId ?? phoneNodeId;
+
   BleService({required this.phoneNodeId});
 
   @override
@@ -252,6 +259,7 @@ class BleService extends RivrTransport {
     _bondSub = null;
     _notifySub = null;
     _companionReady = false;
+    _connectedNodeId = null;
     _writeChar = null;
     _notifyChar = null;
     if (!_wasConnected || _reconnectAttempt >= _reconnectDelays.length) {
@@ -353,6 +361,10 @@ class BleService extends RivrTransport {
             RivrCompanionCodec.describePacket(packet, direction: 'RX')),
       );
       final event = RivrCompanionCodec.parsePacket(packet);
+      if (event is DeviceInfoEvent) {
+        _connectedNodeId = event.nodeId;
+        _bleLog('connected node ID: 0x${event.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')} callsign=${event.callsign}');
+      }
       if (event != null) _safeAddEvent(event);
       return;
     }
@@ -387,7 +399,7 @@ class BleService extends RivrTransport {
       final text = rest.substring(spaceIdx + 1);
       if (channelId == null || channelId <= 0 || text.isEmpty) return;
       packet = RivrFrameCodec.buildChatFrame(
-        srcId: phoneNodeId,
+        srcId: _srcId,
         seq: _seq++,
         text: text,
         channelId: channelId,
@@ -399,7 +411,7 @@ class BleService extends RivrTransport {
       final text = command.substring(5).trimRight();
       if (text.isEmpty) return;
       packet = RivrFrameCodec.buildChatFrame(
-        srcId: phoneNodeId,
+        srcId: _srcId,
         seq: _seq++,
         text: text,
       );

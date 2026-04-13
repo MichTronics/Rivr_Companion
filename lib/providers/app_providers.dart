@@ -191,3 +191,35 @@ class LogNotifier extends Notifier<List<String>> {
 }
 
 final logProvider = NotifierProvider<LogNotifier, List<String>>(LogNotifier.new);
+
+// ── Connected node ID ─────────────────────────────────────────────────────
+
+/// Tracks the node ID of the connected hardware node.
+///
+/// Updated from two sources:
+///  • BLE: [DeviceInfoEvent] emitted immediately after session start
+///  • Both: [MetricsEvent] which carries [RivrMetrics.nodeId]
+class ConnectedNodeIdNotifier extends Notifier<int> {
+  @override
+  int build() {
+    ref.listen(eventStreamProvider, (_, next) {
+      next.whenData((event) {
+        if (event is DeviceInfoEvent && event.nodeId != 0) {
+          state = event.nodeId;
+        } else if (event is MetricsEvent && event.metrics.nodeId != 0) {
+          state = event.metrics.nodeId;
+        }
+      });
+    });
+    return 0;
+  }
+}
+
+final connectedNodeIdProvider =
+    NotifierProvider<ConnectedNodeIdNotifier, int>(ConnectedNodeIdNotifier.new);
+
+/// The node ID of the currently connected hardware node, or 0 if not yet known.
+/// Use this to determine "is this message mine?" in the UI.
+final localMeshNodeIdProvider = Provider<int>((ref) {
+  return ref.watch(connectedNodeIdProvider);
+});

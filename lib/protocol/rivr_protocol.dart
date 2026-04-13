@@ -28,6 +28,12 @@ class RawLineEvent extends RivrEvent {
   RawLineEvent(this.line);
 }
 
+class DeviceInfoEvent extends RivrEvent {
+  final int nodeId;
+  final String callsign;
+  DeviceInfoEvent({required this.nodeId, required this.callsign});
+}
+
 // ── Binary Rivr frame constants ────────────────────────────────────────────
 
 const int _kMagic = 0x5256; // 'RV' little-endian
@@ -628,8 +634,16 @@ class RivrCompanionCodec {
             'BLE_CP:err:0x${cmd.toRadixString(16).padLeft(2, '0')}:$msg');
 
       case _kCpPktDeviceInfo:
-        return RawLineEvent(
-            'BLE_CP:device:${utf8.decode(payload, allowMalformed: true)}');
+        final infoStr = utf8.decode(payload, allowMalformed: true);
+        try {
+          final m = jsonDecode(infoStr) as Map<String, dynamic>;
+          final nodeIdStr = (m['node_id'] as String?)?.replaceFirst('0x', '') ?? '';
+          final nodeId = int.tryParse(nodeIdStr, radix: 16) ?? 0;
+          final callsign = (m['callsign'] as String?) ?? '';
+          return DeviceInfoEvent(nodeId: nodeId, callsign: callsign);
+        } catch (_) {
+          return RawLineEvent('BLE_CP:device:$infoStr');
+        }
 
       case _kCpPktNodeInfo:
         if (payload.length < 22) return null;
