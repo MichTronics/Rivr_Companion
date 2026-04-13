@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'screens/chat_screen.dart';
+import 'screens/channel_list_screen.dart';
 import 'screens/nodes_screen.dart';
 import 'screens/network_map_screen.dart';
 import 'screens/diagnostics_screen.dart';
@@ -137,9 +137,9 @@ class _RivrShellState extends ConsumerState<RivrShell> {
 
   static const _tabs = [
     NavigationDestination(
-      icon: Icon(Icons.chat_bubble_outline),
-      selectedIcon: Icon(Icons.chat_bubble),
-      label: 'Chat',
+      icon: Icon(Icons.forum_outlined),
+      selectedIcon: Icon(Icons.forum),
+      label: 'Channels',
     ),
     NavigationDestination(
       icon: Icon(Icons.device_hub_outlined),
@@ -164,7 +164,7 @@ class _RivrShellState extends ConsumerState<RivrShell> {
   ];
 
   static const _screens = [
-    ChatScreen(),
+    ChannelListScreen(),
     NodesScreen(),
     NetworkMapScreen(),
     DiagnosticsScreen(),

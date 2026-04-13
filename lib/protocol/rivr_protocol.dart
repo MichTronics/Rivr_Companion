@@ -371,9 +371,31 @@ class RivrFrameCodec {
     if (frame == null) return null;
 
     if (frame.isChat) {
-      // PKT_CHAT payload is raw UTF-8 text — no header prefix
-      if (frame.payload.isEmpty) return null;
-      final text = utf8.decode(frame.payload, allowMalformed: true).trim();
+      // PKT_CHAT payload with optional channel prefix (PKT_FLAG_CHANNEL = 0x08).
+      //
+      // When PKT_FLAG_CHANNEL is set:
+      //   payload[0..1]  channel_id  u16 LE
+      //   payload[2..]   utf-8 text
+      //
+      // When not set (legacy v1 behaviour):
+      //   payload[0..]   utf-8 text → channel_id = 0 (Global)
+      const int kFlagChannel = 0x08;
+      const int kChanHdrLen  = 2;
+
+      int channelId;
+      String text;
+
+      if ((frame.flags & kFlagChannel) != 0 && frame.payload.length >= kChanHdrLen) {
+        channelId = frame.payload[0] | (frame.payload[1] << 8);
+        final textBytes = frame.payload.sublist(kChanHdrLen);
+        if (textBytes.isEmpty) return null;
+        text = utf8.decode(textBytes, allowMalformed: true).trim();
+      } else {
+        channelId = 0; // Global — legacy frame
+        if (frame.payload.isEmpty) return null;
+        text = utf8.decode(frame.payload, allowMalformed: true).trim();
+      }
+
       if (text.isEmpty) return null;
       final srcHex =
           '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
@@ -384,6 +406,7 @@ class RivrFrameCodec {
         senderName: srcHex,
         timestamp: DateTime.now(),
         origin: MessageOrigin.remote,
+        channelId: channelId,
       ));
     }
 
@@ -794,8 +817,19 @@ class RivrProtocol {
     return int.tryParse(v.toString()) ?? 0;
   }
 
-  /// Build the serial command to send a chat message.
-  static String buildChatCommand(String text) => 'chat $text\n';
+  /// Build the serial command to send a chat message on a specific channel.
+  ///
+  /// When [channelId] > 0 the firmware is told to emit PKT_FLAG_CHANNEL with
+  /// the given channel_id prefix in the payload.  Channel 0 (Global) sends
+  /// a legacy PKT_CHAT for maximum backward compatibility.
+  ///
+  /// CLI wire format:
+  ///   channel 0  → `chat <text>\n`           (legacy, no channel prefix)
+  ///   channel N  → `chan <N> <text>\n`        (channel-aware, N = 1..65535)
+  static String buildChatCommand(String text, {int channelId = 0}) {
+    if (channelId == 0) return 'chat $text\n';
+    return 'chan $channelId $text\n';
+  }
 
   /// Firmware CLI command to persist the node callsign.
   static String buildSetCallsignCommand(String callsign) =>
