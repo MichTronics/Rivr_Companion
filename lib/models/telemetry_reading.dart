@@ -4,10 +4,12 @@ import 'package:equatable/equatable.dart';
 const int kSensorDs18b20Temp = 1; // DS18B20 temperature
 const int kSensorAm2302Rh   = 2; // AM2302 relative humidity
 const int kSensorAm2302Temp = 3; // AM2302 temperature
+const int kSensorVbat        = 4; // Battery voltage (mV)
 
 /// Unit codes as defined in firmware_core/protocol.h
 const int kUnitCelsius    = 1;
 const int kUnitPercentRh  = 2;
+const int kUnitMillivolts = 3;
 
 /// A single decoded @TEL telemetry reading from a Rivr node.
 ///
@@ -38,18 +40,34 @@ class TelemetryReading extends Equatable {
       case kSensorDs18b20Temp: return 'DS18B20 Temp';
       case kSensorAm2302Rh:   return 'AM2302 RH';
       case kSensorAm2302Temp: return 'AM2302 Temp';
+      case kSensorVbat:        return 'Battery';
       default:                return 'Sensor $sensorId';
     }
   }
 
-  /// Floating-point value (e.g. 21.60).
-  double get value => valueX100 / 100.0;
+  /// True when this is a voltage sensor.
+  bool get isVoltage => unitCode == kUnitMillivolts;
+
+  /// Floating-point value.
+  /// For temperature/humidity: valueX100 ÷ 100.
+  /// For battery voltage (UNIT_MILLIVOLTS): valueX100 is already in mV.
+  double get value {
+    if (isVoltage) return valueX100 / 1000.0;   // mV → V
+    return valueX100 / 100.0;
+  }
 
   /// Short unit string shown after the value.
-  String get unitSuffix => unitCode == kUnitPercentRh ? '%' : '°C';
+  String get unitSuffix {
+    if (unitCode == kUnitPercentRh)  return '%';
+    if (unitCode == kUnitMillivolts) return 'V';
+    return '°C';
+  }
 
-  /// Formatted value string: "21.60 °C" or "41.20 %".
-  String get formatted => '${value.toStringAsFixed(2)} $unitSuffix';
+  /// Formatted value string, e.g. "21.60 °C", "41.20 %", "3.72 V".
+  String get formatted {
+    if (isVoltage) return '${value.toStringAsFixed(2)} V';
+    return '${value.toStringAsFixed(2)} $unitSuffix';
+  }
 
   /// True when this is a temperature sensor.
   bool get isTemperature => unitCode == kUnitCelsius;
