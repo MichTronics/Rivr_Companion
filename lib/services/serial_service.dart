@@ -197,6 +197,12 @@ class SerialService extends RivrTransport {
         _lineBuffer.clear();
         final event = RivrProtocol.parseLine(line);
         if (event != null && !_disposed && !_eventCtrl.isClosed) {
+          // For structured events that consume the raw line (MetricsEvent,
+          // TelemetryEvent) also emit the original text as a RawLineEvent so
+          // it appears in the raw-log tab unchanged.
+          if (event is MetricsEvent || event is TelemetryEvent) {
+            _eventCtrl.add(RawLineEvent(line));
+          }
           _eventCtrl.add(event);
         }
       } else {

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../models/metrics.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
+import '../models/telemetry_reading.dart';
 
 /// Families of structured events emitted by the Rivr firmware serial log.
 sealed class RivrEvent {}
@@ -26,6 +27,11 @@ class NodeEvent extends RivrEvent {
 class RawLineEvent extends RivrEvent {
   final String line;
   RawLineEvent(this.line);
+}
+
+class TelemetryEvent extends RivrEvent {
+  final TelemetryReading reading;
+  TelemetryEvent(this.reading);
 }
 
 class DeviceInfoEvent extends RivrEvent {
@@ -708,6 +714,10 @@ class RivrProtocol {
   // Example:  @MET {"node":3735928559,"dc":12,"qdep":0,...}
   static final _metPattern = RegExp(r'^@MET\s+(\{.+\})\s*$');
 
+  // ── @TEL JSON ──────────────────────────────────────────────────────────────
+  // Example:  @TEL {"src":"0xAABBCCDD","sid":2,"val":4120,"unit":2,"unit_str":"%RH*100","ts":951}
+  static final _telPattern = RegExp(r'^@TEL\s+(\{.+\})\s*$');
+
   // ── @CHT JSON (primary – always emitted by firmware) ───────────────────────
   // Example:  @CHT {"src":"0xDEADBEEF","dst":"0xFFFFFFFF","rssi":-87,"len":5,"text":"hello"}
   static final _chtPattern = RegExp(r'^@CHT\s+(\{.+\})\s*$');
@@ -732,6 +742,13 @@ class RivrProtocol {
     if (metMatch != null) {
       final metrics = _parseMetrics(metMatch.group(1)!);
       if (metrics != null) return MetricsEvent(metrics);
+    }
+
+    // @TEL JSON
+    final telMatch = _telPattern.firstMatch(line);
+    if (telMatch != null) {
+      final event = _parseTel(telMatch.group(1)!);
+      if (event != null) return event;
     }
 
     // @CHT JSON (primary)
@@ -767,6 +784,30 @@ class RivrProtocol {
     }
 
     return RawLineEvent(line);
+  }
+
+  // ── @TEL JSON parser ─────────────────────────────────────────────────────
+  static TelemetryEvent? _parseTel(String json) {
+    try {
+      final m = jsonDecode(json) as Map<String, dynamic>;
+      final srcStr  = m['src'] as String? ?? '0x0';
+      final nodeId  = _parseHex(srcStr) ?? 0;
+      final sensorId   = _i(m, 'sid');
+      final valueX100  = _i(m, 'val');
+      final unitCode   = _i(m, 'unit');
+      final timestampS = _i(m, 'ts');
+      if (sensorId == 0) return null;
+      return TelemetryEvent(TelemetryReading(
+        srcNodeId:   nodeId,
+        sensorId:    sensorId,
+        valueX100:   valueX100,
+        unitCode:    unitCode,
+        timestampS:  timestampS,
+        receivedAt:  DateTime.now(),
+      ));
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── @CHT JSON parser ─────────────────────────────────────────────────────

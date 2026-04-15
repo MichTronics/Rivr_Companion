@@ -4,6 +4,7 @@ import '../protocol/rivr_protocol.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
 import '../models/metrics.dart';
+import '../models/telemetry_reading.dart';
 import '../providers/settings_provider.dart';
 
 // ── Singleton connection manager ───────────────────────────────────────────
@@ -223,3 +224,61 @@ final connectedNodeIdProvider =
 final localMeshNodeIdProvider = Provider<int>((ref) {
   return ref.watch(connectedNodeIdProvider);
 });
+
+// ── Telemetry readings ────────────────────────────────────────────────────
+
+/// Stores the latest reading per (nodeId, sensorId) pair.
+/// Map key: nodeId → Map key: sensorId → latest TelemetryReading.
+class TelemetryNotifier extends Notifier<Map<int, Map<int, TelemetryReading>>> {
+  @override
+  Map<int, Map<int, TelemetryReading>> build() {
+    ref.listen(eventStreamProvider, (_, next) {
+      next.whenData((event) {
+        if (event is TelemetryEvent) {
+          final r = event.reading;
+          final nodeMap = Map<int, TelemetryReading>.from(
+              state[r.srcNodeId] ?? {});
+          nodeMap[r.sensorId] = r;
+          state = {...state, r.srcNodeId: nodeMap};
+        }
+      });
+    });
+    return {};
+  }
+}
+
+final telemetryProvider = NotifierProvider<TelemetryNotifier,
+    Map<int, Map<int, TelemetryReading>>>(TelemetryNotifier.new);
+
+// ── Telemetry history (for charts) ────────────────────────────────────────
+
+/// Stores a timestamped list of readings per (nodeId, sensorId).
+/// Map key: nodeId → Map key: sensorId → ordered list of readings (oldest first).
+class TelemetryHistoryNotifier
+    extends Notifier<Map<int, Map<int, List<TelemetryReading>>>> {
+  static const _maxPoints = 120; // ~2 h at 60 s TX interval
+
+  @override
+  Map<int, Map<int, List<TelemetryReading>>> build() {
+    ref.listen(eventStreamProvider, (_, next) {
+      next.whenData((event) {
+        if (event is TelemetryEvent) {
+          final r = event.reading;
+          final nodeSensors = Map<int, List<TelemetryReading>>.from(
+              state[r.srcNodeId] ?? {});
+          final history = List<TelemetryReading>.from(
+              nodeSensors[r.sensorId] ?? [])
+            ..add(r);
+          nodeSensors[r.sensorId] = history.length > _maxPoints
+              ? history.sublist(history.length - _maxPoints)
+              : history;
+          state = {...state, r.srcNodeId: nodeSensors};
+        }
+      });
+    });
+    return {};
+  }
+}
+
+final telemetryHistoryProvider = NotifierProvider<TelemetryHistoryNotifier,
+    Map<int, Map<int, List<TelemetryReading>>>>(TelemetryHistoryNotifier.new);
