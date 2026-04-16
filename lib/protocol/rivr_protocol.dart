@@ -827,6 +827,11 @@ class RivrProtocol {
   // Example:  @CHT {"src":"0xDEADBEEF","dst":"0xFFFFFFFF","rssi":-87,"len":5,"text":"hello"}
   static final _chtPattern = RegExp(r'^@CHT\s+(\{.+\})\s*$');
 
+  // ── @BCN JSON — emitted on every received beacon ─────────────────────────
+  // Example: @BCN {"src":"0x1A2B3C4D","cs":"ALICE","rssi":-87,"snr":8,
+  //               "hop":1,"score":95,"role":1,"lat":52.3702,"lon":4.8952}
+  static final _bcnPattern = RegExp(r'^@BCN\s+(\{.+\})\s*$');
+
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
   // ── Beacon / node info in ntable output ───────────────────────────────────
@@ -913,6 +918,13 @@ class RivrProtocol {
     final chtMatch = _chtPattern.firstMatch(line);
     if (chtMatch != null) {
       final event = _parseCht(chtMatch.group(1)!);
+      if (event != null) return event;
+    }
+
+    // @BCN JSON → node update (USB serial equivalent of BLE push_node)
+    final bcnMatch = _bcnPattern.firstMatch(line);
+    if (bcnMatch != null) {
+      final event = _parseBcn(bcnMatch.group(1)!);
       if (event != null) return event;
     }
 
@@ -1031,6 +1043,39 @@ class RivrProtocol {
     final stripped =
         s.startsWith('0x') || s.startsWith('0X') ? s.substring(2) : s;
     return int.tryParse(stripped, radix: 16);
+  }
+
+  // ── @BCN JSON parser ──────────────────────────────────────────────────────
+  static NodeEvent? _parseBcn(String json) {
+    try {
+      final m = jsonDecode(json) as Map<String, dynamic>;
+      final srcStr = m['src'] as String? ?? '0x0';
+      final nodeId = _parseHex(srcStr) ?? 0;
+      if (nodeId == 0) return null;
+      final callsign = (m['cs'] as String? ?? '').trim();
+      final rssi = _i(m, 'rssi');
+      final snr = _i(m, 'snr');
+      final hop = _i(m, 'hop');
+      final score = _i(m, 'score');
+      final role = _i(m, 'role');
+      final lat = (m['lat'] as num?)?.toDouble();
+      final lon = (m['lon'] as num?)?.toDouble();
+      return NodeEvent(RivrNode(
+        nodeId: nodeId,
+        callsign: callsign,
+        rssiDbm: rssi,
+        snrDb: snr,
+        hopCount: hop,
+        linkScore: score,
+        lossPercent: 0,
+        role: role,
+        lastSeen: DateTime.now(),
+        lat: lat,
+        lon: lon,
+      ));
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── Parse @MET fields ─────────────────────────────────────────────────────

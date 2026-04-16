@@ -169,6 +169,31 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
         if (!s.isConnected) state = {};
       });
     });
+    // Also react to position changes made via the settings screen so the
+    // self-node stays in sync without waiting for the next connect.
+    ref.listen(connectedNodePositionProvider, (_, pos) {
+      final nodeId = ref.read(connectedNodeIdProvider);
+      if (nodeId == 0) return;
+      final existing = state[nodeId];
+      if (pos != null) {
+        final self = RivrNode(
+          nodeId: nodeId,
+          callsign: existing?.callsign ?? '',
+          rssiDbm: existing?.rssiDbm ?? 0,
+          snrDb: existing?.snrDb ?? 0,
+          hopCount: 0,
+          linkScore: existing?.linkScore ?? 100,
+          lossPercent: existing?.lossPercent ?? 0,
+          lastSeen: DateTime.now(),
+          role: existing?.role ?? 1,
+          lat: pos.lat,
+          lon: pos.lon,
+        );
+        state = {...state, nodeId: self};
+      } else if (existing != null && existing.hopCount == 0) {
+        state = {...state, nodeId: existing.copyWith(lat: null, lon: null)};
+      }
+    });
     return {};
   }
 

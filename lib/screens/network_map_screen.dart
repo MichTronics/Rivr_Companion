@@ -139,15 +139,27 @@ class _GeoMapView extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               n.displayName,
-              style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurface,
-                  shadows: const [
+              style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A2E),
+                  shadows: [
                     Shadow(
                         color: Colors.white,
-                        blurRadius: 3,
-                        offset: Offset(0, 0))
+                        blurRadius: 2,
+                        offset: Offset(-1, -1)),
+                    Shadow(
+                        color: Colors.white,
+                        blurRadius: 2,
+                        offset: Offset(1, -1)),
+                    Shadow(
+                        color: Colors.white,
+                        blurRadius: 2,
+                        offset: Offset(-1, 1)),
+                    Shadow(
+                        color: Colors.white,
+                        blurRadius: 2,
+                        offset: Offset(1, 1)),
                   ]),
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
