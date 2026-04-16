@@ -246,6 +246,9 @@ class ConnectedNodePositionNotifier
         if (event is DeviceInfoEvent) {
           if (event.lat != null && event.lon != null) {
             state = (lat: event.lat!, lon: event.lon!);
+          } else if (event.nodeId != 0) {
+            // Node responded but has no position stored — clear any stale value.
+            state = null;
           }
           // Auto-update the saved callsign when the node reports one and
           // the app's stored callsign is empty or differs.

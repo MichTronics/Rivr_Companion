@@ -52,6 +52,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     final canUseSerialCli =
         isConnected && settings.lastConnectionType == ConnectionType.usb;
+    final canSendPosition = isConnected;
 
     // Use position from the node if available, fall back to manually set label.
     final nodePos = ref.watch(connectedNodePositionProvider);
@@ -126,11 +127,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 leading: const Icon(Icons.location_on_outlined),
                 title: const Text('My node position'),
                 subtitle: Text(posLabel ??
-                    (canUseSerialCli
+                    (canSendPosition
                         ? 'Set position for map visibility'
-                        : 'USB connection required')),
-                enabled: canUseSerialCli,
-                trailing: canUseSerialCli
+                        : 'Connect to set position')),
+                enabled: canSendPosition,
+                trailing: canSendPosition
                     ? PopupMenuButton<_PosPick>(
                         icon: const Icon(Icons.more_vert),
                         onSelected: (pick) {
