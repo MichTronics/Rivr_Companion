@@ -34,12 +34,12 @@ class ChannelListScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.forum_outlined,
-                      size: 56, color: cs.onSurface.withOpacity(0.3)),
+                      size: 56, color: cs.onSurface.withValues(alpha: 0.3)),
                   const SizedBox(height: 16),
                   Text(
                     'No channels joined.',
                     style: theme.textTheme.titleMedium
-                        ?.copyWith(color: cs.onSurface.withOpacity(0.5)),
+                        ?.copyWith(color: cs.onSurface.withValues(alpha: 0.5)),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -111,7 +111,7 @@ class _ChannelTile extends ConsumerWidget {
     // Pick a leading icon by channel kind
     final icon = _iconFor(cfg.kind, isPriority);
     final iconColor = isMuted
-        ? cs.onSurface.withOpacity(0.3)
+        ? cs.onSurface.withValues(alpha: 0.3)
         : isPriority
             ? cs.error
             : cs.primary;
@@ -121,16 +121,16 @@ class _ChannelTile extends ConsumerWidget {
     final lastMsg  = messages.isNotEmpty ? messages.last : null;
 
     final nameStyle = theme.textTheme.titleMedium?.copyWith(
-      color: isMuted ? cs.onSurface.withOpacity(0.5) : cs.onSurface,
+      color: isMuted ? cs.onSurface.withValues(alpha: 0.5) : cs.onSurface,
       fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
     );
 
     return ListTile(
       key: ValueKey(cfg.channelId),
       selected: isActive,
-      selectedTileColor: cs.primaryContainer.withOpacity(0.35),
+      selectedTileColor: cs.primaryContainer.withValues(alpha: 0.35),
       leading: CircleAvatar(
-        backgroundColor: iconColor.withOpacity(0.12),
+        backgroundColor: iconColor.withValues(alpha: 0.12),
         child: Icon(icon, color: iconColor, size: 20),
       ),
       title: Row(
@@ -157,8 +157,8 @@ class _ChannelTile extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: isMuted
-                    ? cs.onSurface.withOpacity(0.35)
-                    : cs.onSurface.withOpacity(0.65),
+                    ? cs.onSurface.withValues(alpha: 0.35)
+                    : cs.onSurface.withValues(alpha: 0.65),
               ),
             )
           : null,

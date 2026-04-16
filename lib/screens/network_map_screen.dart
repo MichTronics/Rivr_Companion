@@ -60,8 +60,8 @@ class NetworkMapScreen extends ConsumerWidget {
       length: 2,
       child: Column(
         children: [
-          TabBar(
-            tabs: const [
+          const TabBar(
+            tabs: [
               Tab(icon: Icon(Icons.hub_outlined), text: 'Mesh'),
               Tab(icon: Icon(Icons.map_outlined), text: 'Map'),
             ],

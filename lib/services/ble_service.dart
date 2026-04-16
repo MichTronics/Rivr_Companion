@@ -432,6 +432,22 @@ class BleService extends RivrTransport {
         RawLineEvent(
             RivrCompanionCodec.describePacket(packet, direction: 'TX')),
       );
+    } else if (command.trim().startsWith('pos ')) {
+      final trimmed = command.trim();
+      if (trimmed == 'pos clear') {
+        packet = RivrCompanionCodec.buildClearPositionBle();
+      } else {
+        final parts = trimmed.split(RegExp(r'\s+'));
+        if (parts.length != 3) return;
+        final lat = double.tryParse(parts[1]);
+        final lon = double.tryParse(parts[2]);
+        if (lat == null || lon == null) return;
+        packet = RivrCompanionCodec.buildSetPositionBle(lat, lon);
+      }
+      _safeAddEvent(
+        RawLineEvent(
+            RivrCompanionCodec.describePacket(packet, direction: 'TX')),
+      );
     } else {
       return;
     }
@@ -492,6 +508,7 @@ class BleService extends RivrTransport {
     if (_companionReady || _writeChar == null) return;
     await _writeBytes(RivrCompanionCodec.buildAppStart(), logTx: true);
     await _writeBytes(RivrCompanionCodec.buildDeviceQuery(), logTx: true);
+    await _writeBytes(RivrCompanionCodec.buildGetNeighbors(), logTx: true);
     _companionReady = true;
   }
 

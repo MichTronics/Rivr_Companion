@@ -55,7 +55,7 @@ class ChannelTableNotifier extends AsyncNotifier<Map<int, ChannelState>> {
   }
 
   /// Parse compact persistence format:
-  ///   "<chanId>:<joined>:<muted>:<hidden>;<chanId>:..."
+  ///   `<chanId>:<joined>:<muted>:<hidden>;<chanId>:...`
   void _applyPersistedMembership(Map<int, ChannelState> table, String raw) {
     for (final entry in raw.split(';')) {
       final parts = entry.split(':');
@@ -245,7 +245,7 @@ final txChannelIdProvider = Provider<int>((ref) {
 /// No parallel "global chat" vs "private chat" split.
 /// Channel 0 (Global) holds all legacy PKT_CHAT messages too.
 ///
-/// State: Map<int, List<ChatMessage>> — channel_id → ordered message list.
+/// State: `Map<int, List<ChatMessage>>` — channel_id → ordered message list.
 class ChannelMessagesNotifier extends Notifier<Map<int, List<ChatMessage>>> {
   static const int _maxMessagesPerChannel = 500;
 

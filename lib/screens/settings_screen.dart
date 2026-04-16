@@ -734,12 +734,12 @@ class _MapPickerScreenState extends State<_MapPickerScreen> {
       if (!svc) return;
       final perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) return;
+          perm == LocationPermission.deniedForever) { return; }
       final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
       final here = LatLng(pos.latitude, pos.longitude);
       if (mounted) {
-        setState(() => _pin = here);
+        setState(() { _pin = here; });
         _mapController.move(here, 14);
       }
     } catch (_) {

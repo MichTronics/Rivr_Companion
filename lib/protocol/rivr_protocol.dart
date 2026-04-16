@@ -68,6 +68,8 @@ const int _kCpCmdAppStart = 0x01;
 const int _kCpCmdDeviceQuery = 0x02;
 const int _kCpCmdSetCallsign = 0x03;
 const int _kCpCmdGetNeighbors = 0x04;
+const int _kCpCmdSetPosition = 0x05;
+const int _kCpCmdClearPosition = 0x06;
 
 const int _kCpPktOk = 0x80;
 const int _kCpPktErr = 0x81;
@@ -75,6 +77,7 @@ const int _kCpPktDeviceInfo = 0x82;
 const int _kCpPktNodeInfo = 0x83;
 const int _kCpPktNodeListDone = 0x84;
 const int _kCpPktChatRx = 0x85;
+const int _kCpPktTelemetry = 0x86;
 
 class RivrBleReassembler {
   final List<_BleFragmentSlot> _slots =
@@ -617,6 +620,20 @@ class RivrCompanionCodec {
 
   static Uint8List buildAppStart() => _buildPacket(_kCpCmdAppStart);
   static Uint8List buildDeviceQuery() => _buildPacket(_kCpCmdDeviceQuery);
+
+  /// Build a BLE companion SET_POSITION command (lat/lon in degrees).
+  static Uint8List buildSetPositionBle(double lat, double lon) {
+    final latE7 = (lat * 1e7).round();
+    final lonE7 = (lon * 1e7).round();
+    final body = ByteData(8);
+    body.setInt32(0, latE7, Endian.little);
+    body.setInt32(4, lonE7, Endian.little);
+    return _buildPacket(_kCpCmdSetPosition, body.buffer.asUint8List());
+  }
+
+  /// Build a BLE companion CLEAR_POSITION command.
+  static Uint8List buildClearPositionBle() =>
+      _buildPacket(_kCpCmdClearPosition);
   static Uint8List buildSetCallsign(String callsign) => _buildPacket(
       _kCpCmdSetCallsign, Uint8List.fromList(utf8.encode(callsign)));
   static Uint8List buildGetNeighbors() => _buildPacket(_kCpCmdGetNeighbors);
@@ -662,7 +679,9 @@ class RivrCompanionCodec {
           final nodeIdStr = (m['node_id'] as String?)?.replaceFirst('0x', '') ?? '';
           final nodeId = int.tryParse(nodeIdStr, radix: 16) ?? 0;
           final callsign = (m['callsign'] as String?) ?? '';
-          return DeviceInfoEvent(nodeId: nodeId, callsign: callsign);
+          final lat = (m['lat'] as num?)?.toDouble();
+          final lon = (m['lon'] as num?)?.toDouble();
+          return DeviceInfoEvent(nodeId: nodeId, callsign: callsign, lat: lat, lon: lon);
         } catch (_) {
           return RawLineEvent('BLE_CP:device:$infoStr');
         }
@@ -724,6 +743,27 @@ class RivrCompanionCodec {
           timestamp: DateTime.now(),
           origin: MessageOrigin.remote,
           channelId: chatChanId,
+        ));
+      case _kCpPktTelemetry:
+        // Payload layout:
+        //   [0-3]   src_id    u32 LE
+        //   [4-5]   sensor_id u16 LE
+        //   [6-9]   value     i32 LE
+        //   [10]    unit_code u8
+        //   [11-14] timestamp u32 LE
+        if (payload.length < 15) return null;
+        final telSrcId = pd.getUint32(0, Endian.little);
+        final telSensorId = pd.getUint16(4, Endian.little);
+        final telValue = pd.getInt32(6, Endian.little);
+        final telUnitCode = payload[10];
+        final telTimestamp = pd.getUint32(11, Endian.little);
+        return TelemetryEvent(TelemetryReading(
+          srcNodeId: telSrcId,
+          sensorId: telSensorId,
+          valueX100: telValue,
+          unitCode: telUnitCode,
+          timestampS: telTimestamp,
+          receivedAt: DateTime.now(),
         ));
     }
 
