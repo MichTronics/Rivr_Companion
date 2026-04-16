@@ -135,7 +135,38 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
               ? incoming.copyWith(lat: existing.lat, lon: existing.lon)
               : incoming;
           state = {...state, merged.nodeId: merged};
+        } else if (event is DeviceInfoEvent && event.nodeId != 0) {
+          // Keep the connected node itself in the map so it appears on the
+          // geo-map whenever it has a position set.
+          final existing = state[event.nodeId];
+          if (event.lat != null && event.lon != null) {
+            final self = RivrNode(
+              nodeId: event.nodeId,
+              callsign: event.callsign.isNotEmpty
+                  ? event.callsign
+                  : (existing?.callsign ?? ''),
+              rssiDbm: existing?.rssiDbm ?? 0,
+              snrDb: existing?.snrDb ?? 0,
+              hopCount: 0,
+              linkScore: existing?.linkScore ?? 100,
+              lossPercent: existing?.lossPercent ?? 0,
+              lastSeen: DateTime.now(),
+              role: existing?.role ?? 1,
+              lat: event.lat,
+              lon: event.lon,
+            );
+            state = {...state, self.nodeId: self};
+          } else if (existing != null && existing.hopCount == 0) {
+            // Node reported no position — clear it from the self entry.
+            state = {...state, existing.nodeId: existing.copyWith(lat: null, lon: null)};
+          }
         }
+      });
+    });
+    // Clear the self-node entry on disconnect so it doesn't linger.
+    ref.listen(connectionStateProvider, (_, next) {
+      next.whenData((s) {
+        if (!s.isConnected) state = {};
       });
     });
     return {};
