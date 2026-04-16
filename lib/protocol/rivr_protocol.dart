@@ -424,9 +424,20 @@ class RivrFrameCodec {
 
     // PKT_BEACON: advertises node presence — extract src_id and emit a NodeEvent.
     if (frame.isBeacon) {
+      const int kFlagHasPos = 0x10;
       int beaconRole = 0;
       if (frame.payload.length >= 12) {
         beaconRole = frame.payload[11];
+      }
+      double? beaconLat, beaconLon;
+      if ((frame.flags & kFlagHasPos) != 0 && frame.payload.length >= 20) {
+        final bpd = ByteData.sublistView(frame.payload);
+        final latE7 = bpd.getInt32(12, Endian.little);
+        final lonE7 = bpd.getInt32(16, Endian.little);
+        if (latE7 != -2147483648 && lonE7 != -2147483648) {
+          beaconLat = latE7 / 1e7;
+          beaconLon = lonE7 / 1e7;
+        }
       }
       final node = RivrNode(
         nodeId: frame.srcId,
@@ -438,6 +449,8 @@ class RivrFrameCodec {
         lossPercent: 0,
         role: beaconRole,
         lastSeen: DateTime.now(),
+        lat: beaconLat,
+        lon: beaconLon,
       );
       return NodeEvent(node);
     }
@@ -655,6 +668,15 @@ class RivrCompanionCodec {
         if (payload.length < 22) return null;
         final callsignBytes =
             payload.sublist(10, 22).takeWhile((b) => b != 0).toList();
+        double? cpLat, cpLon;
+        if (payload.length >= 30) {
+          final latE7 = pd.getInt32(22, Endian.little);
+          final lonE7 = pd.getInt32(26, Endian.little);
+          if (latE7 != -2147483648 && lonE7 != -2147483648) {
+            cpLat = latE7 / 1e7;
+            cpLon = lonE7 / 1e7;
+          }
+        }
         return NodeEvent(RivrNode(
           nodeId: pd.getUint32(0, Endian.little),
           callsign: utf8.decode(callsignBytes, allowMalformed: true),
@@ -665,6 +687,8 @@ class RivrCompanionCodec {
           role: payload[8],
           lossPercent: 0,
           lastSeen: DateTime.now(),
+          lat: cpLat,
+          lon: cpLon,
         ));
 
       case _kCpPktNodeListDone:
@@ -710,6 +734,12 @@ class RivrCompanionCodec {
 ///
 /// The parser is stateless — call [parseLine] for each line received.
 class RivrProtocol {
+  // ── BEACON pos log line ─────────────────────────────────────────────────────
+  // Example:  I (1234) rivr_src: BEACON pos src=0xDEADBEEF lat=525134400 lon=47652300
+  static final _beaconPosPattern = RegExp(
+      r'BEACON pos src=(0x[0-9A-Fa-f]+)\s+lat=(-?\d+)\s+lon=(-?\d+)',
+      caseSensitive: false);
+
   // ── @MET JSON ──────────────────────────────────────────────────────────────
   // Example:  @MET {"node":3735928559,"dc":12,"qdep":0,...}
   static final _metPattern = RegExp(r'^@MET\s+(\{.+\})\s*$');
@@ -758,6 +788,28 @@ class RivrProtocol {
       if (event != null) return event;
     }
 
+    // BEACON pos log line → position update for node
+    final posMatch = _beaconPosPattern.firstMatch(line);
+    if (posMatch != null) {
+      final nodeId = _parseHex(posMatch.group(1)!) ?? 0;
+      final latE7 = int.tryParse(posMatch.group(2)!) ?? -2147483648;
+      final lonE7 = int.tryParse(posMatch.group(3)!) ?? -2147483648;
+      if (latE7 != -2147483648 && lonE7 != -2147483648) {
+        return NodeEvent(RivrNode(
+          nodeId: nodeId,
+          callsign: '',
+          rssiDbm: -120,
+          snrDb: 0,
+          hopCount: 0,
+          linkScore: 0,
+          lossPercent: 0,
+          lastSeen: DateTime.now(),
+          lat: latE7 / 1e7,
+          lon: lonE7 / 1e7,
+        ));
+      }
+    }
+
     // ntable row → node update
     final nbMatch = _ntableRowPattern.firstMatch(line);
     if (nbMatch != null) {
@@ -785,6 +837,15 @@ class RivrProtocol {
 
     return RawLineEvent(line);
   }
+
+  /// Build the serial CLI command to set the node's own position.
+  /// Returns a command string terminated with `\n`, ready to send over USB.
+  static String buildSetPositionCommand(double lat, double lon) {
+    return 'pos ${lat.toStringAsFixed(7)} ${lon.toStringAsFixed(7)}\n';
+  }
+
+  /// Build the serial CLI command to clear the stored position.
+  static String buildClearPositionCommand() => 'pos clear\n';
 
   // ── @TEL JSON parser ─────────────────────────────────────────────────────
   static TelemetryEvent? _parseTel(String json) {

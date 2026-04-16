@@ -126,7 +126,16 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is NodeEvent) {
-          state = {...state, event.node.nodeId: event.node};
+          final incoming = event.node;
+          final existing = state[incoming.nodeId];
+          // Preserve known position when the incoming event has none
+          // (e.g. an ntable row update that predates position knowledge).
+          final merged = (existing != null &&
+                  incoming.lat == null &&
+                  existing.lat != null)
+              ? incoming.copyWith(lat: existing.lat, lon: existing.lon)
+              : incoming;
+          state = {...state, merged.nodeId: merged};
         }
       });
     });

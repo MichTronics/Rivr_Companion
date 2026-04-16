@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:equatable/equatable.dart';
 
 /// A Rivr mesh node discovered via beacons or the `ntable` CLI command.
@@ -12,6 +13,10 @@ class RivrNode extends Equatable {
   final DateTime lastSeen;  // Timestamp of last received frame
   /// Node role: 0=unknown, 1=client, 2=repeater, 3=gateway
   final int role;
+  /// Geographic latitude in decimal degrees; null if not known.
+  final double? lat;
+  /// Geographic longitude in decimal degrees; null if not known.
+  final double? lon;
 
   const RivrNode({
     required this.nodeId,
@@ -23,7 +28,12 @@ class RivrNode extends Equatable {
     required this.lossPercent,
     required this.lastSeen,
     this.role = 0,
+    this.lat,
+    this.lon,
   });
+
+  /// True when both lat and lon are available.
+  bool get hasPosition => lat != null && lon != null;
 
   /// Short display label: callsign if non-empty, else truncated hex ID.
   String get displayName =>
@@ -46,6 +56,25 @@ class RivrNode extends Equatable {
 
   bool get isStale => DateTime.now().difference(lastSeen).inSeconds > 60;
 
+  /// Distance in metres to [other], or null if either node lacks a position.
+  double? distanceTo(RivrNode other) {
+    if (!hasPosition || !other.hasPosition) return null;
+    return _haversineMetres(lat!, lon!, other.lat!, other.lon!);
+  }
+
+  /// Haversine distance in metres between two WGS-84 coordinate pairs.
+  static double _haversineMetres(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371000.0;
+    final dLat = _rad(lat2 - lat1);
+    final dLon = _rad(lon2 - lon1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_rad(lat1)) * math.cos(_rad(lat2)) *
+        math.sin(dLon / 2) * math.sin(dLon / 2);
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  static double _rad(double deg) => deg * math.pi / 180.0;
+
   RivrNode copyWith({
     int? nodeId,
     String? callsign,
@@ -56,6 +85,8 @@ class RivrNode extends Equatable {
     int? lossPercent,
     DateTime? lastSeen,
     int? role,
+    Object? lat = _sentinel,
+    Object? lon = _sentinel,
   }) {
     return RivrNode(
       nodeId: nodeId ?? this.nodeId,
@@ -67,10 +98,16 @@ class RivrNode extends Equatable {
       lossPercent: lossPercent ?? this.lossPercent,
       lastSeen: lastSeen ?? this.lastSeen,
       role: role ?? this.role,
+      lat: lat == _sentinel ? this.lat : lat as double?,
+      lon: lon == _sentinel ? this.lon : lon as double?,
     );
   }
 
+  // Sentinel to distinguish "not passed" from explicit null in copyWith.
+  static const Object _sentinel = Object();
+
   @override
   List<Object?> get props =>
-      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen, role];
+      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen, role, lat, lon];
 }
+

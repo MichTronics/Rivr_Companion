@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 
 import '../models/rivr_node.dart';
 import '../providers/app_providers.dart';
@@ -11,6 +13,7 @@ class NetworkMapScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final nodes = ref.watch(nodesProvider).values.toList();
+    final hasGeo = nodes.any((n) => n.hasPosition);
 
     if (nodes.isEmpty) {
       return const Center(
@@ -25,7 +28,7 @@ class NetworkMapScreen extends ConsumerWidget {
       );
     }
 
-    return Column(
+    final ringView = Column(
       children: [
         Expanded(
           child: InteractiveViewer(
@@ -50,6 +53,130 @@ class NetworkMapScreen extends ConsumerWidget {
         _Legend(nodes: nodes),
       ],
     );
+
+    if (!hasGeo) return ringView;
+
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          TabBar(
+            tabs: const [
+              Tab(icon: Icon(Icons.hub_outlined), text: 'Mesh'),
+              Tab(icon: Icon(Icons.map_outlined), text: 'Map'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                ringView,
+                _GeoMapView(nodes: nodes),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Geo map view using OpenStreetMap tiles.  Displayed when at least one node
+/// has a known position.  Falls back to a message when no nodes have coords.
+class _GeoMapView extends StatelessWidget {
+  final List<RivrNode> nodes;
+  const _GeoMapView({required this.nodes});
+
+  @override
+  Widget build(BuildContext context) {
+    final geoNodes = nodes.where((n) => n.hasPosition).toList();
+    if (geoNodes.isEmpty) {
+      return const Center(
+          child: Text('No position data available.',
+              style: TextStyle(color: Colors.grey)));
+    }
+
+    final center = LatLng(
+      geoNodes.map((n) => n.lat!).reduce((a, b) => a + b) / geoNodes.length,
+      geoNodes.map((n) => n.lon!).reduce((a, b) => a + b) / geoNodes.length,
+    );
+
+    final markers = geoNodes.map((n) {
+      final Color color = n.isGateway
+          ? const Color(0xFF6C63FF)
+          : n.isRepeater
+              ? const Color(0xFF00E5A0)
+              : _scoreColor(n.linkScore);
+      return Marker(
+        point: LatLng(n.lat!, n.lon!),
+        width: 80,
+        height: 56,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 4,
+                        offset: Offset(0, 2))
+                  ]),
+              child: Icon(
+                n.isGateway
+                    ? Icons.cell_tower
+                    : n.isRepeater
+                        ? Icons.repeat
+                        : Icons.person,
+                size: 14,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              n.displayName,
+              style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                  shadows: const [
+                    Shadow(
+                        color: Colors.white,
+                        blurRadius: 3,
+                        offset: Offset(0, 0))
+                  ]),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }).toList();
+
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: 12,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.rivr.companion',
+        ),
+        MarkerLayer(markers: markers),
+      ],
+    );
+  }
+
+  Color _scoreColor(int score) {
+    if (score >= 70) return Colors.green.shade600;
+    if (score >= 40) return Colors.orange.shade600;
+    if (score >= 20) return Colors.red.shade400;
+    return Colors.grey;
   }
 }
 

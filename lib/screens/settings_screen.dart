@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../models/app_settings.dart';
 import '../providers/app_providers.dart';
@@ -20,6 +21,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _callsignCtrl = TextEditingController();
+  String? _nodePositionLabel;
 
   @override
   void initState() {
@@ -34,9 +36,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _callsignCtrl.dispose();
     super.dispose();
-  }
-
-  @override
+  }  @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final connState = ref.watch(connectionStateProvider);
@@ -103,6 +103,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ? 'Not set — node ID will be used'
                     : settings.myCallsign),
                 onTap: () => _editCallsign(settings),
+              ),
+            ],
+          ),
+
+          // ── Node Position ─────────────────────────────────────────────
+          _SettingsSection(
+            title: 'Node Position',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: const Text('My node position'),
+                subtitle: Text(_nodePositionLabel ??
+                    (canUseSerialCli
+                        ? 'Set position for map visibility'
+                        : 'USB connection required')),
+                enabled: canUseSerialCli,
+                trailing: canUseSerialCli
+                    ? PopupMenuButton<_PosPick>(
+                        icon: const Icon(Icons.more_vert),
+                        onSelected: (pick) {
+                          switch (pick) {
+                            case _PosPick.gps:
+                              _setPositionFromGps();
+                            case _PosPick.manual:
+                              _setPositionManually();
+                            case _PosPick.clear:
+                              _clearPosition();
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: _PosPick.gps,
+                            child: ListTile(
+                              leading: Icon(Icons.gps_fixed),
+                              title: Text('Use phone GPS'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _PosPick.manual,
+                            child: ListTile(
+                              leading: Icon(Icons.edit_location_alt_outlined),
+                              title: Text('Enter manually'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _PosPick.clear,
+                            child: ListTile(
+                              leading: Icon(Icons.location_off_outlined),
+                              title: Text('Clear position'),
+                            ),
+                          ),
+                        ],
+                      )
+                    : null,
               ),
             ],
           ),
@@ -182,6 +236,116 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(connectionManagerProvider).disconnect();
   }
 
+  void _showPositionSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _sendPositionCommand(double lat, double lon) async {
+    await ref
+        .read(connectionManagerProvider)
+        .send(RivrProtocol.buildSetPositionCommand(lat, lon));
+    if (mounted) {
+      setState(() {
+        _nodePositionLabel =
+            '${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}';
+      });
+    }
+  }
+
+  Future<void> _setPositionFromGps() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showPositionSnackBar('Location services are disabled.');
+      return;
+    }
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      _showPositionSnackBar('Location permission denied.');
+      return;
+    }
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+      await _sendPositionCommand(pos.latitude, pos.longitude);
+      _showPositionSnackBar('Position sent to node.');
+    } catch (e) {
+      _showPositionSnackBar('Failed to get GPS position: $e');
+    }
+  }
+
+  Future<void> _setPositionManually() async {
+    final latCtrl = TextEditingController();
+    final lonCtrl = TextEditingController();
+    final result = await showDialog<(double, double)?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enter position'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: latCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  signed: true, decimal: true),
+              decoration: const InputDecoration(
+                  labelText: 'Latitude', hintText: '52.5134400'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lonCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                  signed: true, decimal: true),
+              decoration: const InputDecoration(
+                  labelText: 'Longitude', hintText: '4.7652300'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () {
+                final lat = double.tryParse(latCtrl.text.trim());
+                final lon = double.tryParse(lonCtrl.text.trim());
+                if (lat != null &&
+                    lon != null &&
+                    lat >= -90 &&
+                    lat <= 90 &&
+                    lon >= -180 &&
+                    lon <= 180) {
+                  Navigator.pop(ctx, (lat, lon));
+                }
+              },
+              child: const Text('Set')),
+        ],
+      ),
+    );
+    latCtrl.dispose();
+    lonCtrl.dispose();
+    if (result != null) {
+      await _sendPositionCommand(result.$1, result.$2);
+      _showPositionSnackBar('Position sent to node.');
+    }
+  }
+
+  Future<void> _clearPosition() async {
+    await ref
+        .read(connectionManagerProvider)
+        .send(RivrProtocol.buildClearPositionCommand());
+    if (mounted) {
+      setState(() => _nodePositionLabel = null);
+    }
+    _showPositionSnackBar('Position cleared.');
+  }
+
   Future<void> _showConnectSheet() async {
     await showModalBottomSheet(
       context: context,
@@ -242,6 +406,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 }
+
+// ── connect sheet ─────────────────────────────────────────────────────────
+
+enum _PosPick { gps, manual, clear }
 
 // ── Connect sheet ─────────────────────────────────────────────────────────
 
