@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../protocol/rivr_protocol.dart';
+import '../models/app_settings.dart';
 
 /// Connection state snapshot.
 enum ConnectionStatus {
@@ -67,11 +68,27 @@ class ConnectionManager {
     await _detach();
     _transport = transport;
     _stateSub = transport.stateStream.listen((s) {
+      final wasConnected = _lastState.isConnected;
       _lastState = s;
       _stateController.add(s);
+      if (!wasConnected && s.isConnected && _pendingConnectionType == ConnectionType.usb) {
+        // USB just connected — query the node for its stored identity + position.
+        Future.delayed(const Duration(milliseconds: 300), () => send('id\n'));
+      }
+      if (wasConnected && !s.isConnected) {
+        RivrProtocol.resetIdState();
+      }
     });
     _eventSub = transport.eventStream.listen(_eventController.add);
   }
+
+  /// Set the connection type hint so the manager knows when to send `id`.
+  /// Call this before [connect].
+  void setPendingConnectionType(ConnectionType type) {
+    _pendingConnectionType = type;
+  }
+
+  ConnectionType _pendingConnectionType = ConnectionType.usb;
 
   Future<void> startScan() => _transport?.startScan() ?? Future.value();
   Future<void> connect(String deviceId) => _transport?.connect(deviceId) ?? Future.value();

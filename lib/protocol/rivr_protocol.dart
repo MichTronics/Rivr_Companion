@@ -37,7 +37,10 @@ class TelemetryEvent extends RivrEvent {
 class DeviceInfoEvent extends RivrEvent {
   final int nodeId;
   final String callsign;
-  DeviceInfoEvent({required this.nodeId, required this.callsign});
+  /// Geographic position decoded from the `id` CLI response; null if not set.
+  final double? lat;
+  final double? lon;
+  DeviceInfoEvent({required this.nodeId, required this.callsign, this.lat, this.lon});
 }
 
 // ── Binary Rivr frame constants ────────────────────────────────────────────
@@ -734,6 +737,38 @@ class RivrCompanionCodec {
 ///
 /// The parser is stateless — call [parseLine] for each line received.
 class RivrProtocol {
+  // ── `id` command response state machine ───────────────────────────────────
+  // The `id` CLI command prints up to 4 lines:
+  //   Node ID  : 0xXXXXXXXX
+  //   Callsign : ALICE
+  //   Net ID   : 0xXXXX
+  //   Position : lat, lon     (only when a position is stored)
+  //
+  // We buffer across calls because parseLine is called once per line.
+  static int? _idNodeId;
+  static String? _idCallsign;
+  static bool _idNetIdSeen = false;
+  static int _idLastEmittedNodeId = 0;
+  static String _idLastEmittedCallsign = '';
+
+  static final _idNodeIdPattern =
+      RegExp(r'Node ID\s*:\s*(0x[0-9A-Fa-f]+)', caseSensitive: false);
+  static final _idCallsignPattern =
+      RegExp(r'Callsign\s*:\s*(\S*)', caseSensitive: false);
+  static final _idNetIdPattern =
+      RegExp(r'Net ID\s*:', caseSensitive: false);
+  static final _idPositionPattern =
+      RegExp(r'Position\s*:\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)', caseSensitive: false);
+
+  /// Reset the `id`-response accumulator (call on disconnect).
+  static void resetIdState() {
+    _idNodeId = null;
+    _idCallsign = null;
+    _idNetIdSeen = false;
+    _idLastEmittedNodeId = 0;
+    _idLastEmittedCallsign = '';
+  }
+
   // ── BEACON pos log line ─────────────────────────────────────────────────────
   // Example:  I (1234) rivr_src: BEACON pos src=0xDEADBEEF lat=525134400 lon=47652300
   static final _beaconPosPattern = RegExp(
@@ -766,6 +801,59 @@ class RivrProtocol {
   static RivrEvent? parseLine(String line) {
     line = line.trim();
     if (line.isEmpty) return null;
+
+    // ── `id` response accumulator ──────────────────────────────────────────
+    // Firmware prints (in order):
+    //   Node ID  : 0xXXXX
+    //   Callsign : ALICE
+    //   Net ID   : 0xXXXX        ← last guaranteed line
+    //   Position : lat, lon      ← optional; only when position is stored
+    //
+    // On the Net ID line we emit a DeviceInfoEvent and set _idNetIdSeen=true.
+    // If the very next line is a Position line we emit a second, richer event
+    // that supersedes the first (consumers always take the latest value).
+
+    // Phase A: if we just emitted on Net ID, check if current line is Position.
+    if (_idNetIdSeen) {
+      _idNetIdSeen = false;
+      final posMatch = _idPositionPattern.firstMatch(line);
+      if (posMatch != null && _idLastEmittedNodeId != 0) {
+        final lat = double.tryParse(posMatch.group(1)!);
+        final lon = double.tryParse(posMatch.group(2)!);
+        return DeviceInfoEvent(
+            nodeId: _idLastEmittedNodeId,
+            callsign: _idLastEmittedCallsign,
+            lat: lat,
+            lon: lon);
+      }
+      // Not a Position line — fall through to normal parsing.
+    }
+
+    // Phase B: accumulate Node ID / Callsign / Net ID.
+    final nodeIdMatch = _idNodeIdPattern.firstMatch(line);
+    if (nodeIdMatch != null) {
+      _idNodeId = _parseHex(nodeIdMatch.group(1)!);
+      _idCallsign = null;
+      return null;
+    }
+    if (_idNodeId != null) {
+      final csMatch = _idCallsignPattern.firstMatch(line);
+      if (csMatch != null) {
+        _idCallsign = csMatch.group(1) ?? '';
+        return null;
+      }
+      final netMatch = _idNetIdPattern.firstMatch(line);
+      if (netMatch != null && _idCallsign != null) {
+        final nodeId = _idNodeId!;
+        final callsign = _idCallsign!;
+        _idNodeId = null;
+        _idCallsign = null;
+        _idNetIdSeen = true;
+        _idLastEmittedNodeId = nodeId;
+        _idLastEmittedCallsign = callsign;
+        return DeviceInfoEvent(nodeId: nodeId, callsign: callsign);
+      }
+    }
 
     // @MET JSON
     final metMatch = _metPattern.firstMatch(line);

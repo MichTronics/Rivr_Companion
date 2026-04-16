@@ -6,7 +6,6 @@ import '../models/rivr_node.dart';
 import '../models/metrics.dart';
 import '../models/telemetry_reading.dart';
 import '../providers/settings_provider.dart';
-
 // ── Singleton connection manager ───────────────────────────────────────────
 
 final connectionManagerProvider = Provider<ConnectionManager>((ref) {
@@ -233,6 +232,47 @@ final connectedNodeIdProvider =
 final localMeshNodeIdProvider = Provider<int>((ref) {
   return ref.watch(connectedNodeIdProvider);
 });
+
+// ── Connected node identity (auto-loaded on USB connect) ──────────────────
+
+/// Holds the position last reported by the connected node via `id` CLI response.
+/// `null` means not set (node has no stored position).
+class ConnectedNodePositionNotifier
+    extends Notifier<({double lat, double lon})?> {
+  @override
+  ({double lat, double lon})? build() {
+    ref.listen(eventStreamProvider, (_, next) {
+      next.whenData((event) {
+        if (event is DeviceInfoEvent) {
+          if (event.lat != null && event.lon != null) {
+            state = (lat: event.lat!, lon: event.lon!);
+          }
+          // Auto-update the saved callsign when the node reports one and
+          // the app's stored callsign is empty or differs.
+          if (event.callsign.isNotEmpty) {
+            final current = ref.read(settingsProvider).myCallsign;
+            if (current != event.callsign) {
+              ref
+                  .read(settingsNotifierProvider.notifier)
+                  .setCallsign(event.callsign);
+            }
+          }
+        }
+      });
+    });
+    // Clear on disconnect.
+    ref.listen(connectionStateProvider, (_, next) {
+      next.whenData((s) {
+        if (!s.isConnected) state = null;
+      });
+    });
+    return null;
+  }
+}
+
+final connectedNodePositionProvider =
+    NotifierProvider<ConnectedNodePositionNotifier,
+        ({double lat, double lon})?>(ConnectedNodePositionNotifier.new);
 
 // ── Telemetry readings ────────────────────────────────────────────────────
 

@@ -53,6 +53,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final canUseSerialCli =
         isConnected && settings.lastConnectionType == ConnectionType.usb;
 
+    // Use position from the node if available, fall back to manually set label.
+    final nodePos = ref.watch(connectedNodePositionProvider);
+    final posLabel = nodePos != null
+        ? '${nodePos.lat.toStringAsFixed(5)}, ${nodePos.lon.toStringAsFixed(5)}'
+        : _nodePositionLabel;
+
     // Show a SnackBar whenever the connection transitions to error state.
     ref.listen(connectionStateProvider, (_, next) {
       next.whenData((s) {
@@ -62,6 +68,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 5),
           ));
+        }
+        if (!s.isConnected && mounted) {
+          setState(() => _nodePositionLabel = null);
         }
       });
     });
@@ -116,7 +125,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.location_on_outlined),
                 title: const Text('My node position'),
-                subtitle: Text(_nodePositionLabel ??
+                subtitle: Text(posLabel ??
                     (canUseSerialCli
                         ? 'Set position for map visibility'
                         : 'USB connection required')),
@@ -572,6 +581,7 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       final service = _mode == _ConnectMode.ble
           ? BleService(phoneNodeId: settings.phoneNodeId)
           : SerialService(baudRate: settings.lastUsbBaudRate);
+      ref.read(connectionManagerProvider).setPendingConnectionType(selectedType);
       await ref.read(connectionManagerProvider).useTransport(service);
       await _scanSub?.cancel();
       _scanSub =
@@ -608,6 +618,9 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
     if (!mounted) return;
     Navigator.pop(context);
     try {
+      final connType =
+          _mode == _ConnectMode.ble ? ConnectionType.ble : ConnectionType.usb;
+      ref.read(connectionManagerProvider).setPendingConnectionType(connType);
       await ref.read(connectionManagerProvider).useTransport(service);
       await ref.read(connectionManagerProvider).connect(id);
       if (settings.myCallsign.isNotEmpty) {
