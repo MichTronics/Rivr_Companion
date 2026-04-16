@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 
 import '../models/app_settings.dart';
 import '../providers/app_providers.dart';
@@ -126,6 +128,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           switch (pick) {
                             case _PosPick.gps:
                               _setPositionFromGps();
+                            case _PosPick.mapPick:
+                              _setPositionFromMap();
                             case _PosPick.manual:
                               _setPositionManually();
                             case _PosPick.clear:
@@ -138,6 +142,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             child: ListTile(
                               leading: Icon(Icons.gps_fixed),
                               title: Text('Use phone GPS'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _PosPick.mapPick,
+                            child: ListTile(
+                              leading: Icon(Icons.pin_drop_outlined),
+                              title: Text('Pick on map'),
                             ),
                           ),
                           PopupMenuItem(
@@ -336,6 +347,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _setPositionFromMap() async {
+    final result = await Navigator.of(context).push<(double, double)>(
+      MaterialPageRoute(builder: (_) => const _MapPickerScreen()),
+    );
+    if (result != null) {
+      await _sendPositionCommand(result.$1, result.$2);
+      _showPositionSnackBar('Position sent to node.');
+    }
+  }
+
   Future<void> _clearPosition() async {
     await ref
         .read(connectionManagerProvider)
@@ -409,7 +430,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
 // ── connect sheet ─────────────────────────────────────────────────────────
 
-enum _PosPick { gps, manual, clear }
+enum _PosPick { gps, mapPick, manual, clear }
 
 // ── Connect sheet ─────────────────────────────────────────────────────────
 
@@ -656,6 +677,144 @@ class _BaudRateTile extends ConsumerWidget {
             ref.read(settingsNotifierProvider.notifier).setBaudRate(v);
           }
         },
+      ),
+    );
+  }
+}
+
+// ── Map position picker ────────────────────────────────────────────────────
+
+/// Full-screen map that lets the user tap or drag a pin to pick a position.
+/// Returns `(latitude, longitude)` when confirmed, or pops with null.
+class _MapPickerScreen extends StatefulWidget {
+  const _MapPickerScreen();
+
+  @override
+  State<_MapPickerScreen> createState() => _MapPickerScreenState();
+}
+
+class _MapPickerScreenState extends State<_MapPickerScreen> {
+  // Default to a central-Europe starting view; will be overridden by GPS.
+  static const _defaultCenter = LatLng(52.0, 5.0);
+
+  late final MapController _mapController;
+  LatLng _pin = _defaultCenter;
+  bool _locating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _tryInitFromGps();
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _tryInitFromGps() async {
+    setState(() => _locating = true);
+    try {
+      final svc = await Geolocator.isLocationServiceEnabled();
+      if (!svc) return;
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+      final here = LatLng(pos.latitude, pos.longitude);
+      if (mounted) {
+        setState(() => _pin = here);
+        _mapController.move(here, 14);
+      }
+    } catch (_) {
+      // Silently fall back to default centre.
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final latStr = _pin.latitude.toStringAsFixed(6);
+    final lonStr = _pin.longitude.toStringAsFixed(6);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pick position'),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.check),
+            label: const Text('Confirm'),
+            onPressed: () =>
+                Navigator.of(context).pop((_pin.latitude, _pin.longitude)),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _pin,
+              initialZoom: 5,
+              onTap: (_, point) => setState(() => _pin = point),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.rivr.companion',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _pin,
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.topCenter,
+                    child: const Icon(Icons.location_pin,
+                        size: 48, color: Colors.red),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Coordinate readout at the bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              child: Container(
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.location_on, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Lat $latStr  Lon $lonStr',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                    if (_locating)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
