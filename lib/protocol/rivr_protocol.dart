@@ -834,11 +834,12 @@ class RivrProtocol {
 
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
-  // ── Beacon / node info in ntable output ───────────────────────────────────
-  // Example:  0x1A2B3C4D  ALICE    1  -87  +8  72  15s  123    C
-  // Role column (last) is optional: C=client, REP=repeater, GW=gateway.
+  // ── ntable output from neighbor_table_print ─────────────────────────────
+  // Format: 0x%08lX %5d %4d %5u %5u %6u %9u %6lu %6lu  %s
+  // Cols:   nodeId  rssi snr loss etx flen score  age rx_ok flags
+  // (No callsign column — callsign comes from @BCN lines.)
   static final _ntableRowPattern = RegExp(
-      r'(0x[0-9A-Fa-f]{8})\s+(\S*)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)(?:\s+\d+\s+\d+\s+(\S+))?',
+      r'(0x[0-9A-Fa-f]{8})\s+(-?\d+)\s+(-?\d+)\s+\d+\s+\d+\s+\d+\s+(\d+)',
       caseSensitive: false);
 
   /// Parse one line of firmware output and return an event, or null if the
@@ -950,26 +951,21 @@ class RivrProtocol {
       }
     }
 
-    // ntable row → node update
+    // ntable row → node update (no callsign available; hopCount defaults to 1)
     final nbMatch = _ntableRowPattern.firstMatch(line);
     if (nbMatch != null) {
       final nodeId = _parseHex(nbMatch.group(1)!) ?? 0;
-      final callsign = nbMatch.group(2) ?? '';
-      final hops = int.tryParse(nbMatch.group(3)!) ?? 0;
-      final rssi = int.tryParse(nbMatch.group(4)!) ?? -120;
-      final snr = int.tryParse(nbMatch.group(5)!) ?? 0;
-      final score = int.tryParse(nbMatch.group(6)!) ?? 0;
-      final roleStr = nbMatch.group(7)?.toUpperCase() ?? '';
-      final role = roleStr == 'REP' ? 2 : roleStr == 'GW' ? 3 : roleStr == 'C' ? 1 : 0;
+      final rssi = int.tryParse(nbMatch.group(2)!) ?? -120;
+      final snr = int.tryParse(nbMatch.group(3)!) ?? 0;
+      final score = int.tryParse(nbMatch.group(4)!) ?? 0;
       final node = RivrNode(
         nodeId: nodeId,
-        callsign: callsign == '-' ? '' : callsign,
+        callsign: '',
         rssiDbm: rssi,
         snrDb: snr,
-        hopCount: hops,
+        hopCount: 1,
         linkScore: score,
         lossPercent: 0,
-        role: role,
         lastSeen: DateTime.now(),
       );
       return NodeEvent(node);
@@ -1065,7 +1061,7 @@ class RivrProtocol {
         callsign: callsign,
         rssiDbm: rssi,
         snrDb: snr,
-        hopCount: hop,
+        hopCount: hop + 1,
         linkScore: score,
         lossPercent: 0,
         role: role,

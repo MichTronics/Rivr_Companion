@@ -127,13 +127,18 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
         if (event is NodeEvent) {
           final incoming = event.node;
           final existing = state[incoming.nodeId];
-          // Preserve known position when the incoming event has none
-          // (e.g. an ntable row update that predates position knowledge).
-          final merged = (existing != null &&
-                  incoming.lat == null &&
-                  existing.lat != null)
-              ? incoming.copyWith(lat: existing.lat, lon: existing.lon)
-              : incoming;
+          // Preserve known callsign/position when the incoming event lacks them
+          // (ntable rows carry no callsign; @BCN position may lag ntable).
+          final callsign = incoming.callsign.isNotEmpty
+              ? incoming.callsign
+              : (existing?.callsign ?? '');
+          final lat = incoming.lat ?? existing?.lat;
+          final lon = incoming.lon ?? existing?.lon;
+          final merged = incoming.copyWith(
+            callsign: callsign,
+            lat: lat,
+            lon: lon,
+          );
           state = {...state, merged.nodeId: merged};
         } else if (event is DeviceInfoEvent && event.nodeId != 0) {
           // Keep the connected node itself in the map so it appears on the

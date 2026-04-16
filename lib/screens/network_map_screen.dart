@@ -243,7 +243,11 @@ class _MeshPainter extends CustomPainter {
     }
 
     // Draw "this device" node at centre
-    _drawNode(canvas, thisPos, label: 'This\nDevice',
+    final selfNode = nodes.where((n) => n.hopCount == 0).firstOrNull;
+    final selfLabel = (selfNode != null && selfNode.callsign.isNotEmpty)
+        ? selfNode.callsign
+        : 'This\nDevice';
+    _drawNode(canvas, thisPos, label: selfLabel,
         color: primaryColor, radius: 22, textColor: Colors.white);
 
     // Draw discovered nodes
@@ -318,7 +322,7 @@ class _MeshPainter extends CustomPainter {
 
   Map<RivrNode, Offset> _layoutNodes(
       List<RivrNode> nodes, double cx, double cy, Size size) {
-    final hop1 = nodes.where((n) => n.hopCount <= 1).toList();
+    final hop1 = nodes.where((n) => n.hopCount == 1).toList();
     final hop2 = nodes.where((n) => n.hopCount == 2).toList();
     final hopN = nodes.where((n) => n.hopCount > 2).toList();
 
