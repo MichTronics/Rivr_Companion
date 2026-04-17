@@ -429,10 +429,21 @@ class RivrFrameCodec {
     }
 
     // PKT_BEACON: advertises node presence — extract src_id and emit a NodeEvent.
+    // Payload layout (protocol.h BEACON_PAYLOAD_LEN = 12):
+    //   [0..9]  callsign (ASCII, NUL-padded, max 10 chars)
+    //   [10]    hop_count (0 at origin)
+    //   [11]    role (1=client, 2=repeater, 3=gateway)
+    //   [12..19] optional lat/lon when PKT_FLAG_HAS_POS (0x10) is set
     if (frame.isBeacon) {
       const int kFlagHasPos = 0x10;
+      String beaconCallsign = '';
       int beaconRole = 0;
       if (frame.payload.length >= 12) {
+        // Extract NUL-terminated callsign from bytes 0..9
+        final csBytes = frame.payload.sublist(0, 10);
+        final nullIdx = csBytes.indexOf(0);
+        final csEnd = nullIdx >= 0 ? nullIdx : 10;
+        beaconCallsign = String.fromCharCodes(csBytes.sublist(0, csEnd)).trim();
         beaconRole = frame.payload[11];
       }
       double? beaconLat, beaconLon;
@@ -447,10 +458,10 @@ class RivrFrameCodec {
       }
       final node = RivrNode(
         nodeId: frame.srcId,
-        callsign: '',
+        callsign: beaconCallsign,
         rssiDbm: -120,
         snrDb: 0,
-        hopCount: frame.hopCount,
+        hopCount: frame.hopCount + 1,
         linkScore: 0,
         lossPercent: 0,
         role: beaconRole,
@@ -832,6 +843,14 @@ class RivrProtocol {
   //               "hop":1,"score":95,"role":1,"lat":52.3702,"lon":4.8952}
   static final _bcnPattern = RegExp(r'^@BCN\s+(\{.+\})\s*$');
 
+  // ── RIVR_SRC BEACON log line — always emitted on every firmware build ────
+  // Format produced by RIVR_LOGI in rivr_sources.c (ESP-IDF ESP_LOGI prefix):
+  //   I (1932) RIVR_SRC: BEACON src=0xa50a9a0c cs='NL9MVV' role=1 rssi=-12 dBm
+  // This is the reliable fallback when @BCN JSON is not available.
+  static final _rivrSrcBeaconPattern = RegExp(
+      "RIVR_SRC:\\s+BEACON\\s+src=(0x[0-9A-Fa-f]+)\\s+cs='([^']*)'\\s+role=(\\d+)\\s+rssi=(-?\\d+)",
+      caseSensitive: false);
+
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
   // Example:  [CHAT][DEADBEEF]: hello world
   // ── ntable output from neighbor_table_print ─────────────────────────────
@@ -929,6 +948,28 @@ class RivrProtocol {
       if (event != null) return event;
     }
 
+    // RIVR_SRC: BEACON log line → node update (always present in firmware logs)
+    final rivrBcnMatch = _rivrSrcBeaconPattern.firstMatch(line);
+    if (rivrBcnMatch != null) {
+      final nodeId = _parseHex(rivrBcnMatch.group(1)!) ?? 0;
+      if (nodeId != 0) {
+        final callsign = rivrBcnMatch.group(2) ?? '';
+        final role = int.tryParse(rivrBcnMatch.group(3)!) ?? 0;
+        final rssi = int.tryParse(rivrBcnMatch.group(4)!) ?? -120;
+        return NodeEvent(RivrNode(
+          nodeId: nodeId,
+          callsign: callsign,
+          rssiDbm: rssi,
+          snrDb: 0,
+          hopCount: 1,
+          linkScore: 0,
+          lossPercent: 0,
+          role: role,
+          lastSeen: DateTime.now(),
+        ));
+      }
+    }
+
     // BEACON pos log line → position update for node
     final posMatch = _beaconPosPattern.firstMatch(line);
     if (posMatch != null) {
@@ -941,7 +982,7 @@ class RivrProtocol {
           callsign: '',
           rssiDbm: -120,
           snrDb: 0,
-          hopCount: 0,
+          hopCount: 1,
           linkScore: 0,
           lossPercent: 0,
           lastSeen: DateTime.now(),

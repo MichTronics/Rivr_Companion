@@ -127,6 +127,13 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
         if (event is NodeEvent) {
           final incoming = event.node;
           final existing = state[incoming.nodeId];
+          // Never let a NodeEvent (from @BCN / ntable / log lines) overwrite
+          // the self-node established by DeviceInfoEvent or MetricsEvent.
+          // Guard on the actual connected node ID, not on hopCount==0, to
+          // avoid locking out neighbour nodes that were accidentally placed
+          // at hopCount==0 by the BEACON pos log parser.
+          final selfId = ref.read(connectedNodeIdProvider);
+          if (selfId != 0 && incoming.nodeId == selfId) return;
           // Preserve known callsign/position when the incoming event lacks them
           // (ntable rows carry no callsign; @BCN position may lag ntable).
           final callsign = incoming.callsign.isNotEmpty
@@ -141,29 +148,57 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
           );
           state = {...state, merged.nodeId: merged};
         } else if (event is DeviceInfoEvent && event.nodeId != 0) {
-          // Keep the connected node itself in the map so it appears on the
-          // geo-map whenever it has a position set.
+          // Always keep the connected node in the map (hopCount=0) so the
+          // mesh ring shows the correct callsign even without a position.
           final existing = state[event.nodeId];
-          if (event.lat != null && event.lon != null) {
-            final self = RivrNode(
-              nodeId: event.nodeId,
-              callsign: event.callsign.isNotEmpty
-                  ? event.callsign
-                  : (existing?.callsign ?? ''),
-              rssiDbm: existing?.rssiDbm ?? 0,
-              snrDb: existing?.snrDb ?? 0,
-              hopCount: 0,
-              linkScore: existing?.linkScore ?? 100,
-              lossPercent: existing?.lossPercent ?? 0,
-              lastSeen: DateTime.now(),
-              role: existing?.role ?? 1,
-              lat: event.lat,
-              lon: event.lon,
-            );
-            state = {...state, self.nodeId: self};
-          } else if (existing != null && existing.hopCount == 0) {
-            // Node reported no position — clear it from the self entry.
-            state = {...state, existing.nodeId: existing.copyWith(lat: null, lon: null)};
+          final callsign = event.callsign.isNotEmpty
+              ? event.callsign
+              : (existing?.callsign ?? '');
+          final self = RivrNode(
+            nodeId: event.nodeId,
+            callsign: callsign,
+            rssiDbm: existing?.rssiDbm ?? 0,
+            snrDb: existing?.snrDb ?? 0,
+            hopCount: 0,
+            linkScore: existing?.linkScore ?? 100,
+            lossPercent: existing?.lossPercent ?? 0,
+            lastSeen: DateTime.now(),
+            role: existing?.role ?? 1,
+            // Preserve existing position unless a new one is provided.
+            lat: event.lat ?? (existing?.hopCount == 0 ? existing?.lat : null),
+            lon: event.lon ?? (existing?.hopCount == 0 ? existing?.lon : null),
+          );
+          state = {...state, self.nodeId: self};
+        } else if (event is MetricsEvent && event.metrics.nodeId != 0) {
+          // MetricsEvent is broadcast periodically by the firmware on every
+          // platform (USB serial and BLE).  Use it as a reliable fallback to
+          // establish the self-node (hopCount=0) in case DeviceInfoEvent from
+          // the `id\n` response hasn't arrived yet (e.g. first @MET fires
+          // before the 300 ms USB delay elapses, or id\n was delayed).
+          final nodeId = event.metrics.nodeId;
+          final existing = state[nodeId];
+          if (existing == null || existing.hopCount != 0) {
+            // Prefer callsign already in map; fall back to the one stored in
+            // settings (auto-synced from every DeviceInfoEvent / id response).
+            final callsign = (existing?.callsign.isNotEmpty == true)
+                ? existing!.callsign
+                : ref.read(settingsProvider).myCallsign;
+            if (callsign.isNotEmpty) {
+              final self = RivrNode(
+                nodeId: nodeId,
+                callsign: callsign,
+                rssiDbm: existing?.rssiDbm ?? 0,
+                snrDb: existing?.snrDb ?? 0,
+                hopCount: 0,
+                linkScore: existing?.linkScore ?? 100,
+                lossPercent: existing?.lossPercent ?? 0,
+                lastSeen: DateTime.now(),
+                role: existing?.role ?? 1,
+                lat: existing?.lat,
+                lon: existing?.lon,
+              );
+              state = {...state, nodeId: self};
+            }
           }
         }
       });

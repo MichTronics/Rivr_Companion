@@ -14,8 +14,9 @@ class NetworkMapScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final nodes = ref.watch(nodesProvider).values.toList();
     final hasGeo = nodes.any((n) => n.hasPosition);
+    final hasNeighbours = nodes.any((n) => n.hopCount != 0);
 
-    if (nodes.isEmpty) {
+    if (!hasNeighbours) {
       return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -363,12 +364,14 @@ class _Legend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = nodes.length;
-    final good = nodes.where((n) => n.linkScore >= 70).length;
-    final fair = nodes.where((n) => n.linkScore >= 40 && n.linkScore < 70).length;
-    final poor = nodes.where((n) => n.linkScore < 40).length;
-    final repeaters = nodes.where((n) => n.isRepeater).length;
-    final gateways = nodes.where((n) => n.isGateway).length;
+    // Exclude self-node (hopCount==0) from neighbour counts.
+    final neighbours = nodes.where((n) => n.hopCount != 0).toList();
+    final total = neighbours.length;
+    final good = neighbours.where((n) => n.linkScore >= 70).length;
+    final fair = neighbours.where((n) => n.linkScore >= 40 && n.linkScore < 70).length;
+    final poor = neighbours.where((n) => n.linkScore < 40).length;
+    final repeaters = neighbours.where((n) => n.isRepeater).length;
+    final gateways = neighbours.where((n) => n.isGateway).length;
 
     return SafeArea(
       child: Padding(
