@@ -4,11 +4,11 @@ A Flutter mobile and desktop app for monitoring and controlling a [Rivr](https:/
 
 ## Features
 
-- **Chat** — send and receive CHAT messages over the mesh
-- **Nodes** — live view of neighbour nodes with RSSI, SNR, and link scores
-- **Network** — mesh topology and routing table
-- **Diagnostics** — real-time `@MET` metric counters and `@SUPPORTPACK` capture
-- **Settings** — connection management, radio parameters, and policy configuration
+- **Chat** — multi-channel messaging (Global, Ops, Local, Emergency, Sensor, and custom channels); send and receive `PKT_CHAT` frames over the mesh
+- **Nodes** — live view of neighbour nodes with RSSI, SNR, hop count, link score, and role
+- **Network Map** — geographic mesh map with GPS markers for nodes that report a position; haversine distance between nodes
+- **Diagnostics** — real-time `PKT_METRICS` counter display and `@SUPPORTPACK` capture
+- **Settings** — connection management, callsign, node GPS position (set/clear), dark mode, and advanced controls
 
 ## Connectivity
 

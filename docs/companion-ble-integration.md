@@ -212,14 +212,89 @@ itself is excluded from the calculation).
 
 ### PKT_CHAT payload format
 
+The payload layout depends on whether the `PKT_FLAG_CHANNEL` bit (0x08) is set in `flags`.
+
+**Without `PKT_FLAG_CHANNEL` (legacy / Global channel):**
+
 ```
 Offset  Len  Field
-  0      1   (reserved, 0x00)
-  1      1   (reserved, 0x00)
-  2      2   msg_seq   u16 LE   per-origin chat message sequence
-  4      3   (reserved, 0x00)
-  7     [N]  text      UTF-8    message body (N = payload_len − 7)
+  0     [N]  text      UTF-8    message body (channel_id implicitly 0 = Global)
 ```
+
+**With `PKT_FLAG_CHANNEL` (channel-aware; current builds):**
+
+```
+Offset  Len  Field
+  0      2   channel_id  u16 LE   destination channel (0 = Global, 1 = Ops, …)
+  2     [N]  text        UTF-8    message body
+```
+
+> The per-origin sequence counter lives in the frame header at offset 17 (`seq` u16 LE),
+> not in the payload.  Always set `flags = 0x08` and prepend the 2-byte channel header
+> for new code; treat a payload with no channel header as Global (channel 0).
+
+### PKT_METRICS binary payload
+
+`PKT_METRICS` (type 11) is a binary diagnostics snapshot pushed by the node every ~5 s over
+BLE only (TTL = 1; never LoRa-relayed).  Two payload sizes are in use:
+
+| Size | Version |
+|------|---------|
+| 48 bytes | Legacy compact payload (pre-v0.2 firmware) |
+| 132 bytes | Full metrics payload (current) |
+
+**Full payload (132 bytes):**
+
+```
+Offset  Len  Field             JSON key        Notes
+──────  ───  ────────────────  ──────────────  ──────────────────────────
+  0      4   node_id           —               u32 LE, originating node
+  4      1   dc_pct            dc_pct          duty cycle used %
+  5      1   q_depth           q_depth         TX queue depth
+  6      4   tx_total          tx_total        u32 LE
+ 10      4   rx_total          rx_total        u32 LE
+ 14      1   route_cache       route_cache     live route-cache entries
+ 15      1   lnk_cnt           lnk_cnt         live neighbor count
+ 16      1   lnk_best          lnk_best        best link score 0-100
+ 17      1   lnk_rssi          lnk_rssi        i8, dBm  EWMA of best neighbor
+ 18      1   lnk_loss          lnk_loss        avg loss % across neighbors
+ 19      4   relay_skip        relay_skip      u32 LE, suppressed relays
+ 23      4   relay_delay       relay_delay     u32 LE, extra holdoff ms
+ 27      1   relay_density     relay_density   viable neighbor count
+ 28      4   relay_fwd         relay_fwd       u32 LE
+ 32      4   relay_sel         relay_sel       u32 LE, candidates selected
+ 36      4   relay_can         relay_can       u32 LE, cancelled (phase-4)
+ 40      4   rx_fail           rx_fail         u32 LE, decode failures
+ 44      4   rx_dup            rx_dup          u32 LE, dedupe drops
+ 48      4   rx_ttl            rx_ttl          u32 LE, TTL-exhausted drops
+ 52      4   rx_bad_type       rx_bad_type     u32 LE
+ 56      4   rx_bad_hop        rx_bad_hop      u32 LE
+ 60      4   tx_full           tx_full         u32 LE, TX queue full
+ 64      4   dc_blk            dc_blk          u32 LE, duty-cycle blocked
+ 68      4   no_route          no_route        u32 LE
+ 72      4   loop_drop_total   loop_drop_total u32 LE
+ 76      4   rad_rst           rad_rst         u32 LE, hard resets
+ 80      4   rad_txfail        rad_txfail      u32 LE
+ 84      4   rad_crc           rad_crc         u32 LE, CRC errors
+ 88      4   rc_hit            rc_hit          u32 LE, route-cache hits
+ 92      4   rc_miss           rc_miss         u32 LE
+ 96      4   ack_tx            ack_tx          u32 LE
+100      4   ack_rx            ack_rx          u32 LE
+104      4   retry_att         retry_att       u32 LE
+108      4   retry_ok          retry_ok        u32 LE
+112      4   retry_fail        retry_fail      u32 LE
+116      4   ble_conn          ble_conn        u32 LE (see §11)
+120      4   ble_rx            ble_rx          u32 LE
+124      4   ble_tx            ble_tx          u32 LE
+128      4   ble_err           ble_err         u32 LE
+```
+
+**Legacy compact payload (48 bytes):** offsets differ for relay/drop fields; only
+`dc_pct`, `q_depth`, `tx_total`, `rx_total`, `route_cache`, `lnk_*`, `relay_density`,
+`relay_skip`, `rx_fail`, `rx_dup`, and `ble_*` counters are present.
+
+> Always check payload length before parsing.  A payload ≥ 132 bytes → use the full
+> format; 48 ≤ payload < 132 → use the legacy format; anything shorter → discard.
 
 ---
 
@@ -424,8 +499,21 @@ support (`flutter_reactive_ble` does not support Windows as of 2026).
 
 When the companion app sends `APP_START` (0x01) after connecting,
 the node switches into **companion mode**: raw frame bridging is disabled and a
-structured command/response protocol is used instead.  All companion writes are
-framed as `[type u8][length u8][payload…]`.
+structured command/response protocol is used instead.  Every companion write and every
+companion notify uses the following 5-byte header:
+
+```
+Offset  Len  Field    Notes
+──────  ───  ───────  ───────────────────────────────────────
+  0      2   magic    u16 LE, always 0x4352 ('RC')
+  2      1   version  u8,  currently 1
+  3      1   type     u8,  command or packet code (see tables below)
+  4      1   status   u8,  0 for commands; echo of cmd for OK/ERR responses
+  5+    [N]  payload  type-specific payload bytes
+```
+
+Use `RivrCompanionCodec.isCompanionPacket()` (checks magic bytes) to distinguish companion
+packets from raw Rivr frames on the TX characteristic.
 
 ### 14.1 Commands (app → node, via RX characteristic write)
 
@@ -451,6 +539,12 @@ framed as `[type u8][length u8][payload…]`.
 | 0x83 | `NODE_INFO` | 30 bytes (see §14.4) | `GET_NEIGHBORS` command, or unsolicited on beacon arrival |
 | 0x84 | `NODE_LIST_DONE` | none | End of `GET_NEIGHBORS` stream |
 | 0x85 | `CHAT_RX` | src_id u32 LE + channel_id u16 LE + UTF-8 text | Chat message received from the mesh |
+
+> **`CHAT_RX` legacy compatibility:** firmware built before channel support was added omits
+> the `channel_id` bytes (total payload shorter than 7 bytes).  In that case treat the text
+> as starting at offset 4 and assign it to channel 0 (Global).  Guard with a length check:
+> if `payload.length >= 7` read `channel_id = payload[4] | (payload[5] << 8)` and text from
+> offset 6; otherwise text starts at offset 4 and `channel_id = 0`.
 | 0x86 | `TELEMETRY` | 15 bytes (see §14.5) | Telemetry reading received from the mesh |
 
 ### 14.3 `DEVICE_INFO` JSON payload
@@ -491,13 +585,32 @@ Offset  Len  Field       Type     Notes
 Offset  Len  Field       Type     Notes
 ──────  ───  ──────────  ───────  ──────────────────────────────────────────────
   0      4   src_id      u32 LE   Originating sensor node ID
-  4      2   sensor_id   u16 LE   Application-defined sensor index
+  4      2   sensor_id   u16 LE   Application-defined sensor index (see table)
   6      4   value       i32 LE   Scaled integer (unit-dependent)
- 10      1   unit_code   u8       UNIT_* constant
+ 10      1   unit_code   u8       UNIT_* constant (see table)
  11      4   timestamp   u32 LE   Seconds since node boot (0 = unset)
 ```
 
-**Unit codes:** 0=none, 1=Celsius×100, 2=%RH×100, 3=millivolts, 4=dBm, 5=ppm×100, 255=custom
+**Known sensor IDs:**
+
+| `sensor_id` | Constant | Description |
+|-------------|----------|-------------|
+| 1 | `SENSOR_DS18B20_TEMP` | DS18B20 temperature |
+| 2 | `SENSOR_AM2302_RH`   | AM2302 relative humidity |
+| 3 | `SENSOR_AM2302_TEMP` | AM2302 temperature |
+| 4 | `SENSOR_VBAT`        | Battery voltage |
+
+**Unit codes:**
+
+| `unit_code` | Constant | Value encoding | Example |
+|-------------|----------|----------------|---------|
+| 0 | `UNIT_NONE` | raw | — |
+| 1 | `UNIT_CELSIUS` | °C × 100 (i32) | 2160 = 21.60 °C |
+| 2 | `UNIT_PERCENT_RH` | %RH × 100 (i32) | 4120 = 41.20 %RH |
+| 3 | `UNIT_MILLIVOLTS` | mV (i32) | 3720 = 3.720 V |
+| 4 | `UNIT_DBM` | dBm (i32) | — |
+| 5 | `UNIT_PPM_X100` | ppm × 100 (i32) | — |
+| 255 | `UNIT_CUSTOM` | application-defined | — |
 
 **Built-in sensor IDs** (when hardware is present and feature flag enabled):
 
