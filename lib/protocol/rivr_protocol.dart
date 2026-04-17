@@ -844,11 +844,13 @@ class RivrProtocol {
   static final _bcnPattern = RegExp(r'^@BCN\s+(\{.+\})\s*$');
 
   // ── RIVR_SRC BEACON log line — always emitted on every firmware build ────
-  // Format produced by RIVR_LOGI in rivr_sources.c (ESP-IDF ESP_LOGI prefix):
-  //   I (1932) RIVR_SRC: BEACON src=0xa50a9a0c cs='NL9MVV' role=1 rssi=-12 dBm
-  // This is the reliable fallback when @BCN JSON is not available.
+  // Format varies by platform (all share the same suffix after the tag):
+  //   ESP32 : I (1932) RIVR_SRC: BEACON src=0xa50a9a0c cs='NL9MVV' role=1 rssi=-12 dBm
+  //   RP2040: [I][RIVR_SRC] BEACON src=0xa50a9a0c cs='NL9MVV' role=1 rssi=-12 dBm
+  //   Linux : [I][ms][RIVR_SRC] BEACON src=... cs='...' role=N rssi=N dBm
+  // Match on the payload portion only; the cs='' field is unique to this line.
   static final _rivrSrcBeaconPattern = RegExp(
-      "RIVR_SRC:\\s+BEACON\\s+src=(0x[0-9A-Fa-f]+)\\s+cs='([^']*)'\\s+role=(\\d+)\\s+rssi=(-?\\d+)",
+      "BEACON\\s+src=(0x[0-9A-Fa-f]+)\\s+cs='([^']*)'\\s+role=(\\d+)\\s+rssi=(-?\\d+)",
       caseSensitive: false);
 
   // ── [CHAT][NODEID]: text  (human-readable fallback, client build) ─────────
