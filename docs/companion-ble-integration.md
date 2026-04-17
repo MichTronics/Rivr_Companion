@@ -165,7 +165,7 @@ Offset  Len  Field           Type     Notes
   0      2   magic           u16 LE   Always 0x5256 ("RV"). Reject if wrong.
   2      1   version         u8       Protocol version. Currently 1.
   3      1   pkt_type        u8       See packet type table below.
-  4      1   flags           u8       Bitmask: 0x01=ACK_REQ, 0x02=RELAYED, 0x04=FALLBACK
+  4      1   flags           u8       Bitmask: 0x01=ACK_REQ, 0x02=RELAYED, 0x04=FALLBACK, 0x08=CHANNEL (CHAT), 0x10=HAS_POS (BEACON)
   5      1   ttl             u8       Hops remaining. Default 7. Decrement on relay.
   6      1   hop             u8       Hops taken so far. 0 at origin.
   7      2   net_id          u16 LE   Network partition ID. 0x0000 = default.
@@ -420,7 +420,97 @@ support (`flutter_reactive_ble` does not support Windows as of 2026).
 
 ---
 
-## 14. Known limitations (v0.1.0-beta)
+## 14. BLE Companion Protocol (command/packet layer)
+
+When the companion app sends `APP_START` (0x01) after connecting,
+the node switches into **companion mode**: raw frame bridging is disabled and a
+structured command/response protocol is used instead.  All companion writes are
+framed as `[type u8][length u8][payload…]`.
+
+### 14.1 Commands (app → node, via RX characteristic write)
+
+| Value | Constant | Payload | Description |
+|-------|----------|---------|-------------|
+| 0x01 | `APP_START` | none | Activate companion mode. Must be the first write after subscribing. |
+| 0x02 | `DEVICE_QUERY` | none | Request `DEVICE_INFO` response from the node. |
+| 0x03 | `SET_CALLSIGN` | UTF-8 string (max 10 bytes) | Persist a new callsign on the node. |
+| 0x04 | `GET_NEIGHBORS` | none | Trigger a stream of `NODE_INFO` packets followed by `NODE_LIST_DONE`. |
+| 0x05 | `SET_POSITION` | lat_e7 i32 LE + lon_e7 i32 LE (8 bytes total) | Set and persist the node's GPS position (degrees × 1e7). |
+| 0x06 | `CLEAR_POSITION` | none | Clear the persisted GPS position (sets to INT32_MIN = unknown). |
+
+> `APP_START` must be sent before any other command; sending other commands
+> before `APP_START` results in an `ERR` response.
+
+### 14.2 Packets (node → app, via TX characteristic notify)
+
+| Value | Constant | Payload | Triggered by |
+|-------|----------|---------|---------------|
+| 0x80 | `OK` | 1-byte echo of the acknowledged command | Any successful command |
+| 0x81 | `ERR` | 1-byte command + error string | Failed command |
+| 0x82 | `DEVICE_INFO` | JSON object (see §14.3) | `DEVICE_QUERY` command |
+| 0x83 | `NODE_INFO` | 30 bytes (see §14.4) | `GET_NEIGHBORS` command, or unsolicited on beacon arrival |
+| 0x84 | `NODE_LIST_DONE` | none | End of `GET_NEIGHBORS` stream |
+| 0x85 | `CHAT_RX` | src_id u32 LE + channel_id u16 LE + UTF-8 text | Chat message received from the mesh |
+| 0x86 | `TELEMETRY` | 15 bytes (see §14.5) | Telemetry reading received from the mesh |
+
+### 14.3 `DEVICE_INFO` JSON payload
+
+```json
+{"node_id":"0xAABBCCDD","callsign":"CALL","net_id":"0x0000",
+ "env":"client_lilygo_lora32_v21_ble","role":"client","radio":"SX1262"}
+```
+
+When a GPS position is stored, `lat` and `lon` fields are included (decimal degrees):
+
+```json
+{"node_id":"0xAABBCCDD","callsign":"CALL","net_id":"0x0000",
+ "env":"client_lilygo_lora32_v21_ble","role":"client","radio":"SX1262",
+ "lat":52.3740300,"lon":4.8896900}
+```
+
+### 14.4 `NODE_INFO` binary payload (30 bytes)
+
+```
+Offset  Len  Field       Type     Notes
+──────  ───  ──────────  ───────  ──────────────────────────────────────────────
+  0      4   node_id     u32 LE
+  4      1   rssi        i8       dBm
+  5      1   snr         i8       dB
+  6      1   hop_count   u8       1 = direct neighbour; 0 = this node
+  7      1   link_score  u8       0–100 composite quality
+  8      1   role        u8       0=unknown, 1=client, 2=repeater, 3=gateway
+  9      1   (pad)       u8       0x00
+ 10     12   callsign    bytes    ASCII, NUL-padded, max 11 chars
+ 22      4   lat_e7      i32 LE   degrees × 1e7; INT32_MIN (0x80000000) = unknown
+ 26      4   lon_e7      i32 LE   degrees × 1e7; INT32_MIN (0x80000000) = unknown
+```
+
+### 14.5 `TELEMETRY` binary payload (15 bytes)
+
+```
+Offset  Len  Field       Type     Notes
+──────  ───  ──────────  ───────  ──────────────────────────────────────────────
+  0      4   src_id      u32 LE   Originating sensor node ID
+  4      2   sensor_id   u16 LE   Application-defined sensor index
+  6      4   value       i32 LE   Scaled integer (unit-dependent)
+ 10      1   unit_code   u8       UNIT_* constant
+ 11      4   timestamp   u32 LE   Seconds since node boot (0 = unset)
+```
+
+**Unit codes:** 0=none, 1=Celsius×100, 2=%RH×100, 3=millivolts, 4=dBm, 5=ppm×100, 255=custom
+
+**Built-in sensor IDs** (when hardware is present and feature flag enabled):
+
+| sensor_id | Sensor | Unit |
+|-----------|--------|------|
+| 1 | DS18B20 temperature | Celsius×100 |
+| 2 | AM2302 relative humidity | %RH×100 |
+| 3 | AM2302 temperature | Celsius×100 |
+| 4 | Battery voltage | millivolts |
+
+---
+
+## 15. Known limitations (v0.1.0-beta)
 
 | Limitation | Detail |
 |---|---|
