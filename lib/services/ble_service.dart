@@ -43,6 +43,14 @@ class BleService extends RivrTransport {
   final int phoneNodeId;
   int _seq = 0;
 
+  // Safety initialiser: if the caller passes 0 (AppSettings default before
+  // async load completes) generate a temporary random ID so frames never
+  // go out with src_id = 0x00000000 (== broadcast address).
+  BleService({required int phoneNodeId})
+      : phoneNodeId = phoneNodeId != 0
+            ? phoneNodeId
+            : RivrFrameCodec.generateNodeId();
+
   final _stateCtrl = StreamController<RivrConnState>.broadcast();
   final _eventCtrl = StreamController<RivrEvent>.broadcast();
 
@@ -73,8 +81,6 @@ class BleService extends RivrTransport {
 
   /// Effective srcId for outgoing frames: hardware node ID once known.
   int get _srcId => _connectedNodeId ?? phoneNodeId;
-
-  BleService({required this.phoneNodeId});
 
   @override
   Stream<RivrConnState> get stateStream => _stateCtrl.stream;

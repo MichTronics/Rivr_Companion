@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 import '../protocol/rivr_protocol.dart';
 import '../models/app_settings.dart';
 
@@ -93,7 +94,14 @@ class ConnectionManager {
   Future<void> startScan() => _transport?.startScan() ?? Future.value();
   Future<void> connect(String deviceId) => _transport?.connect(deviceId) ?? Future.value();
   Future<void> disconnect() => _transport?.disconnect() ?? Future.value();
-  Future<void> send(String command) => _transport?.send(command) ?? Future.value();
+  Future<void> send(String command) {
+    if (_transport == null) {
+      dev.log('send() called with no active transport — command dropped: $command',
+          name: 'ConnectionManager', level: 900);
+      return Future.value();
+    }
+    return _transport!.send(command);
+  }
 
   Future<void> _detach() async {
     await _stateSub?.cancel();

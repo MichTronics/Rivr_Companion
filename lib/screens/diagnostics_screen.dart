@@ -44,7 +44,6 @@ class DiagnosticsScreen extends ConsumerWidget {
                   latest: latest,
                   isConnected: isConnected,
                   canRequestMetrics: canRequestMetrics,
-                  ref: ref,
                 ),
                 _ChartsTab(history: history),
                 const _SensorsTab(),
@@ -60,21 +59,19 @@ class DiagnosticsScreen extends ConsumerWidget {
 
 // ── Overview tab ──────────────────────────────────────────────────────────
 
-class _OverviewTab extends StatelessWidget {
+class _OverviewTab extends ConsumerWidget {
   final RivrMetrics latest;
   final bool isConnected;
   final bool canRequestMetrics;
-  final WidgetRef ref;
 
   const _OverviewTab({
     required this.latest,
     required this.isConnected,
     required this.canRequestMetrics,
-    required this.ref,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final content = SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       physics: canRequestMetrics

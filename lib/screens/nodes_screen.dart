@@ -22,6 +22,13 @@ class NodesScreen extends ConsumerWidget {
     final canRefreshNodes =
         isConnected && settings.lastConnectionType == ConnectionType.usb;
 
+    final listView = ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: nodes.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (ctx, i) => NodeTile(node: nodes[i]),
+    );
+
     return Scaffold(
       body: nodes.isEmpty
           ? Center(
@@ -57,21 +64,9 @@ class NodesScreen extends ConsumerWidget {
                   onRefresh: () => ref
                       .read(connectionManagerProvider)
                       .send(RivrProtocol.cmdNtable),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: nodes.length,
-                    separatorBuilder: (_, __) =>
-                        const Divider(height: 1, indent: 72),
-                    itemBuilder: (ctx, i) => NodeTile(node: nodes[i]),
-                  ),
+                  child: listView,
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: nodes.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1, indent: 72),
-                  itemBuilder: (ctx, i) => NodeTile(node: nodes[i]),
-                ),
+              : listView,
       floatingActionButton: canRefreshNodes
           ? FloatingActionButton.small(
               onPressed: () => ref
