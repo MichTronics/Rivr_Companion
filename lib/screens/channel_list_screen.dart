@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/channel.dart';
 import '../providers/channel_provider.dart';
 import 'channel_thread_screen.dart';
+import 'sensor_channel_screen.dart';
 
 /// Channel list screen — the primary chat UX entry point.
 ///
@@ -78,9 +79,11 @@ class ChannelListScreen extends ConsumerWidget {
         );
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ChannelThreadScreen(
-          channelId: channelState.config.channelId,
-        ),
+        builder: (_) => channelState.config.channelId == 4
+            ? const SensorChannelScreen()
+            : ChannelThreadScreen(
+                channelId: channelState.config.channelId,
+              ),
       ),
     );
   }
