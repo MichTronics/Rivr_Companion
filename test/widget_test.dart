@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: RivrApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Chat'), findsOneWidget);
+    expect(find.text('Channels'), findsOneWidget);
     expect(find.text('Nodes'), findsOneWidget);
     expect(find.text('Network'), findsOneWidget);
     expect(find.text('Diagnostics'), findsOneWidget);
