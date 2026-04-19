@@ -1,11 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/connection_manager.dart';
+import '../services/app_database.dart';
 import '../protocol/rivr_protocol.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
 import '../models/metrics.dart';
 import '../models/telemetry_reading.dart';
 import '../providers/settings_provider.dart';
+
+// ── App database ──────────────────────────────────────────────────────────
+
+final appDatabaseProvider = Provider<AppDatabase>((ref) {
+  final db = AppDatabase();
+  ref.onDispose(db.close);
+  return db;
+});
+
 // ── Singleton connection manager ───────────────────────────────────────────
 
 final connectionManagerProvider = Provider<ConnectionManager>((ref) {
@@ -30,15 +40,35 @@ final eventStreamProvider = StreamProvider<RivrEvent>((ref) {
 // ── Chat messages ──────────────────────────────────────────────────────────
 
 class ChatNotifier extends Notifier<List<ChatMessage>> {
-  static const _maxMessages = 500;
+  static const _maxMessages = 1000;
 
   /// Pending local sends keyed by text, used to suppress a single immediate TX
   /// echo when the radio's node-ID is not yet known from @MET.
   final _pendingEchoes = <String, ({DateTime sentAt, int remaining})>{};
   static const _echoWindow = Duration(seconds: 3);
 
+  AppDatabase get _db => ref.read(appDatabaseProvider);
+
   @override
   List<ChatMessage> build() {
+    // Seed state from persisted messages asynchronously so we don't block
+    // the synchronous build(). Events that arrive during the load are
+    // appended to state normally; the DB seed will re-sort and de-dup.
+    Future.microtask(() async {
+      final stored = await _db.getAllMessages();
+      if (stored.isEmpty) return;
+      // Merge: keep any messages already added via events, de-dup by id.
+      final existing = {for (final m in state) m.id: m};
+      for (final m in stored) {
+        existing.putIfAbsent(m.id, () => m);
+      }
+      final merged = existing.values.toList()
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      state = merged.length > _maxMessages
+          ? merged.sublist(merged.length - _maxMessages)
+          : merged;
+    });
+
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is ChatEvent) {
@@ -98,6 +128,8 @@ class ChatNotifier extends Notifier<List<ChatMessage>> {
     state = next.length > _maxMessages
         ? next.sublist(next.length - _maxMessages)
         : next;
+    // Persist asynchronously — fire and forget.
+    _db.insertMessage(msg);
   }
 
   void addSystem(String text) => _add(ChatMessage.system(text));
@@ -120,8 +152,22 @@ final chatProvider =
 // ── Nodes ──────────────────────────────────────────────────────────────────
 
 class NodesNotifier extends Notifier<Map<int, RivrNode>> {
+  AppDatabase get _db => ref.read(appDatabaseProvider);
+
   @override
   Map<int, RivrNode> build() {
+    // Seed from DB on startup.
+    Future.microtask(() async {
+      final stored = await _db.getAllNodes();
+      if (stored.isEmpty) return;
+      // Don't overwrite state if events already populated it.
+      final existing = Map<int, RivrNode>.from(state);
+      for (final n in stored) {
+        existing.putIfAbsent(n.nodeId, () => n);
+      }
+      state = existing;
+    });
+
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is NodeEvent) {
@@ -146,7 +192,7 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
             lat: lat,
             lon: lon,
           );
-          state = {...state, merged.nodeId: merged};
+          _setNode(merged);
         } else if (event is DeviceInfoEvent && event.nodeId != 0) {
           // Always keep the connected node in the map (hopCount=0) so the
           // mesh ring shows the correct callsign even without a position.
@@ -168,7 +214,7 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
             lat: event.lat ?? (existing?.hopCount == 0 ? existing?.lat : null),
             lon: event.lon ?? (existing?.hopCount == 0 ? existing?.lon : null),
           );
-          state = {...state, self.nodeId: self};
+          _setNode(self);
         } else if (event is MetricsEvent && event.metrics.nodeId != 0) {
           // MetricsEvent is broadcast periodically by the firmware on every
           // platform (USB serial and BLE).  Use it as a reliable fallback to
@@ -197,7 +243,7 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
                 lat: existing?.lat,
                 lon: existing?.lon,
               );
-              state = {...state, nodeId: self};
+              _setNode(self);
             }
           }
         }
@@ -229,12 +275,18 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
           lat: pos.lat,
           lon: pos.lon,
         );
-        state = {...state, nodeId: self};
+        _setNode(self);
       } else if (existing != null && existing.hopCount == 0) {
-        state = {...state, nodeId: existing.copyWith(lat: null, lon: null)};
+        _setNode(existing.copyWith(lat: null, lon: null));
       }
     });
     return {};
+  }
+
+  /// Updates state and persists the node to the local database.
+  void _setNode(RivrNode node) {
+    state = {...state, node.nodeId: node};
+    _db.upsertNode(node); // fire and forget
   }
 
   List<RivrNode> get sorted => state.values.toList()
@@ -380,6 +432,27 @@ final connectedNodePositionProvider =
 class TelemetryNotifier extends Notifier<Map<int, Map<int, TelemetryReading>>> {
   @override
   Map<int, Map<int, TelemetryReading>> build() {
+    // Seed from DB: compute latest per (srcNodeId, sensorId).
+    Future.microtask(() async {
+      final recent = await ref.read(appDatabaseProvider).getRecentTelemetry();
+      if (recent.isEmpty) return;
+      final map = <int, Map<int, TelemetryReading>>{};
+      for (final r in recent) {
+        // recent is sorted oldest-first, so later entries overwrite earlier.
+        map.putIfAbsent(r.srcNodeId, () => {})[r.sensorId] = r;
+      }
+      // Merge so live readings received before load completes are kept.
+      for (final entry in map.entries) {
+        final live = state[entry.key];
+        if (live == null) {
+          state = {...state, entry.key: entry.value};
+        } else {
+          final merged = Map<int, TelemetryReading>.from(entry.value)..addAll(live);
+          state = {...state, entry.key: merged};
+        }
+      }
+    });
+
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is TelemetryEvent) {
@@ -406,8 +479,35 @@ class TelemetryHistoryNotifier
     extends Notifier<Map<int, Map<int, List<TelemetryReading>>>> {
   static const _maxPoints = 120; // ~2 h at 60 s TX interval
 
+  AppDatabase get _db => ref.read(appDatabaseProvider);
+
   @override
   Map<int, Map<int, List<TelemetryReading>>> build() {
+    // Seed with last 7 days of readings from the database.
+    Future.microtask(() async {
+      final stored = await _db.getRecentTelemetry();
+      if (stored.isEmpty) return;
+      final map = <int, Map<int, List<TelemetryReading>>>{};
+      for (final r in stored) {
+        map.putIfAbsent(r.srcNodeId, () => {})
+            .putIfAbsent(r.sensorId, () => [])
+            .add(r);
+      }
+      // Merge live readings that arrived before the load completed.
+      final merged = Map<int, Map<int, List<TelemetryReading>>>.from(map);
+      for (final nodeEntry in state.entries) {
+        for (final sensorEntry in nodeEntry.value.entries) {
+          final existing = merged
+              .putIfAbsent(nodeEntry.key, () => {})
+              .putIfAbsent(sensorEntry.key, () => []);
+          existing.addAll(sensorEntry.value);
+        }
+      }
+      state = merged;
+    });
+    // Prune stale rows from the DB once on startup (best-effort).
+    Future.microtask(() => _db.pruneOldTelemetry());
+
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is TelemetryEvent) {
@@ -421,6 +521,7 @@ class TelemetryHistoryNotifier
               ? history.sublist(history.length - _maxPoints)
               : history;
           state = {...state, r.srcNodeId: nodeSensors};
+          _db.insertTelemetry(r); // fire and forget
         }
       });
     });
