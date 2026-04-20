@@ -24,6 +24,13 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- ── Foreground service — keeps process alive for background upload ─ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ requires the specific service type permission -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Android 13+ runtime notification permission -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- ── BLE hardware feature ───────────────────────────────────────── -->
     <uses-feature android:name="android.hardware.bluetooth_le"
         android:required="false" />
@@ -70,6 +77,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- flutter_foreground_task foreground service -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
 
     </application>
 

@@ -143,6 +143,9 @@ class _RivrShellState extends ConsumerState<RivrShell> {
     // starts) as soon as the shell mounts — even before any navigation.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(telemetryForwardProvider);
+      // Eagerly activate the foreground-service lifecycle provider so Android
+      // starts the foreground service as soon as the device connects.
+      ref.read(foregroundServiceProvider);
     });
   }
 

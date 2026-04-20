@@ -41,6 +41,9 @@ dependencies:
   # HTTP client — used for website telemetry forwarding
   http: ^1.2.0
 
+  # Android foreground service — keeps the process alive when backgrounded
+  flutter_foreground_task: ^8.14.0
+
   # Utilities
   intl: ^0.19.0
   collection: ^1.18.0

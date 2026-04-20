@@ -1,6 +1,9 @@
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Lokale build-instellingen (bevat API-sleutel — niet committen)
+build.bat
 .fvm/
 build/
 pubspec.lock

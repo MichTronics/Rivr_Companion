@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/connection_manager.dart';
 import '../services/app_database.dart';
 import '../services/telemetry_forward_service.dart';
+import '../services/foreground_service.dart';
 import '../protocol/rivr_protocol.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
@@ -557,4 +558,21 @@ final telemetryForwardProvider = Provider<TelemetryForwardService>((ref) {
 /// Live upload stats.
 final webUploadStatsProvider = StreamProvider<WebUploadStats>((ref) {
   return ref.watch(telemetryForwardProvider).statsStream;
+});
+
+// ── Android foreground service ────────────────────────────────────────────
+
+/// Starts the Android foreground service when connected and stops it on
+/// disconnect, preventing the OS from pausing the process in the background
+/// and interrupting telemetry forwarding.
+final foregroundServiceProvider = Provider<void>((ref) {
+  ref.listen(connectionStateProvider, (_, next) {
+    next.whenData((s) {
+      if (s.isConnected) {
+        startForegroundService('Connected — forwarding mesh data');
+      } else {
+        stopForegroundService();
+      }
+    });
+  });
 });
