@@ -2,6 +2,18 @@ import 'package:equatable/equatable.dart';
 
 enum ConnectionType { none, ble, usb }
 
+/// Default web upload endpoint — injected at build time via --dart-define.
+/// Never hard-code the token in source; pass it as:
+///   flutter build <target> --dart-define=INGEST_TOKEN=<token>
+const kDefaultWebUploadUrl = String.fromEnvironment(
+  'INGEST_URL',
+  defaultValue: 'https://rivr.co.nl',
+);
+const kDefaultWebUploadToken = String.fromEnvironment(
+  'INGEST_TOKEN',
+  defaultValue: '',
+);
+
 /// Persistent user preferences.
 class AppSettings extends Equatable {
   final bool darkMode;
@@ -12,6 +24,11 @@ class AppSettings extends Equatable {
   final String myCallsign;      // optional display name for this device
   final int phoneNodeId;        // persistent random node-ID for BLE frames
 
+  /// Website ingest URL, e.g. https://rivr.network  — empty = disabled.
+  final String webUploadUrl;
+  /// Shared secret sent as x-ingest-token header.
+  final String webUploadToken;
+
   const AppSettings({
     this.darkMode = false,
     this.advancedMode = false,
@@ -20,6 +37,8 @@ class AppSettings extends Equatable {
     this.lastUsbBaudRate = 115200,
     this.myCallsign = '',
     this.phoneNodeId = 0,
+    this.webUploadUrl = kDefaultWebUploadUrl,
+    this.webUploadToken = kDefaultWebUploadToken,
   });
 
   AppSettings copyWith({
@@ -30,6 +49,8 @@ class AppSettings extends Equatable {
     int? lastUsbBaudRate,
     String? myCallsign,
     int? phoneNodeId,
+    String? webUploadUrl,
+    String? webUploadToken,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -39,12 +60,19 @@ class AppSettings extends Equatable {
       lastUsbBaudRate: lastUsbBaudRate ?? this.lastUsbBaudRate,
       myCallsign: myCallsign ?? this.myCallsign,
       phoneNodeId: phoneNodeId ?? this.phoneNodeId,
+      webUploadUrl: webUploadUrl ?? this.webUploadUrl,
+      webUploadToken: webUploadToken ?? this.webUploadToken,
     );
   }
+
+  /// True when web forwarding is fully configured.
+  bool get webUploadEnabled =>
+      webUploadUrl.isNotEmpty && webUploadToken.isNotEmpty;
 
   @override
   List<Object?> get props => [
     darkMode, advancedMode, lastConnectionType,
     lastBleDeviceName, lastUsbBaudRate, myCallsign, phoneNodeId,
+    webUploadUrl, webUploadToken,
   ];
 }

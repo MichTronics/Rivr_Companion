@@ -50,7 +50,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Linux (release)
-        run: flutter build linux --release
+        run: flutter build linux --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}
 
       - name: Package Linux ZIP
         run: |
@@ -83,7 +83,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows (release)
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}
 
       - name: Package Windows ZIP
         shell: pwsh
@@ -124,7 +124,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Android APK (release)
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}
 
       - name: Rename APK
         run: |

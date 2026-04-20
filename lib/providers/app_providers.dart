@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/connection_manager.dart';
 import '../services/app_database.dart';
+import '../services/telemetry_forward_service.dart';
 import '../protocol/rivr_protocol.dart';
 import '../models/chat_message.dart';
 import '../models/rivr_node.dart';
@@ -531,3 +532,29 @@ class TelemetryHistoryNotifier
 
 final telemetryHistoryProvider = NotifierProvider<TelemetryHistoryNotifier,
     Map<int, Map<int, List<TelemetryReading>>>>(TelemetryHistoryNotifier.new);
+
+// ── Website telemetry forwarding ──────────────────────────────────────────
+
+/// Manages the [TelemetryForwardService] lifecycle.
+/// Always active — forwards data to the built-in server using hardcoded
+/// defaults, falling back to user-overridden values if present.
+final telemetryForwardProvider = Provider<TelemetryForwardService>((ref) {
+  final settings = ref.watch(settingsProvider);
+
+  final service = TelemetryForwardService(
+    baseUrl: settings.webUploadUrl,
+    token: settings.webUploadToken,
+  );
+
+  final eventStream = ref.watch(connectionManagerProvider).eventStream;
+  service.attach(eventStream);
+
+  ref.onDispose(service.dispose);
+
+  return service;
+});
+
+/// Live upload stats.
+final webUploadStatsProvider = StreamProvider<WebUploadStats>((ref) {
+  return ref.watch(telemetryForwardProvider).statsStream;
+});

@@ -4,13 +4,15 @@ import '../models/app_settings.dart';
 import '../protocol/rivr_protocol.dart';
 
 class SettingsNotifier extends AsyncNotifier<AppSettings> {
-  static const _darkModeKey = 'dark_mode';
-  static const _advancedKey = 'advanced_mode';
-  static const _callsignKey = 'callsign';
-  static const _bleNameKey = 'ble_device';
-  static const _baudRateKey = 'baud_rate';
-  static const _connTypeKey = 'conn_type';
-  static const _nodeIdKey   = 'phone_node_id';
+  static const _darkModeKey    = 'dark_mode';
+  static const _advancedKey    = 'advanced_mode';
+  static const _callsignKey    = 'callsign';
+  static const _bleNameKey     = 'ble_device';
+  static const _baudRateKey    = 'baud_rate';
+  static const _connTypeKey    = 'conn_type';
+  static const _nodeIdKey      = 'phone_node_id';
+  static const _webUrlKey      = 'web_upload_url';
+  static const _webTokenKey    = 'web_upload_token';
 
   @override
   Future<AppSettings> build() async {
@@ -31,6 +33,8 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       lastUsbBaudRate: prefs.getInt(_baudRateKey) ?? 115200,
       lastConnectionType: ConnectionType.values[prefs.getInt(_connTypeKey) ?? 0],
       phoneNodeId: phoneNodeId,
+      webUploadUrl: prefs.getString(_webUrlKey) ?? kDefaultWebUploadUrl,
+      webUploadToken: prefs.getString(_webTokenKey) ?? kDefaultWebUploadToken,
     );
   }
 
@@ -70,6 +74,18 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     state = AsyncData(
       (state.value ?? const AppSettings()).copyWith(lastConnectionType: type),
     );
+  }
+
+  Future<void> setWebUploadUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_webUrlKey, url);
+    state = AsyncData((state.value ?? const AppSettings()).copyWith(webUploadUrl: url));
+  }
+
+  Future<void> setWebUploadToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_webTokenKey, token);
+    state = AsyncData((state.value ?? const AppSettings()).copyWith(webUploadToken: token));
   }
 }
 

@@ -22,7 +22,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _callsignCtrl = TextEditingController();
+  final _callsignCtrl  = TextEditingController();
   String? _nodePositionLabel;
 
   @override
@@ -30,7 +30,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.initState();
     // Pre-fill callsign from saved settings
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _callsignCtrl.text = ref.read(settingsProvider).myCallsign;
+      final s = ref.read(settingsProvider);
+      _callsignCtrl.text = s.myCallsign;
     });
   }
 
@@ -38,7 +39,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _callsignCtrl.dispose();
     super.dispose();
-  }  @override
+  }
+
+  @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final connState = ref.watch(connectionStateProvider);
@@ -181,6 +184,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ],
           ),
+
+          // ── Web Upload ────────────────────────────────────────────────────
+          const _WebUploadSection(),
 
           // ── Appearance ────────────────────────────────────────────────────
           _SettingsSection(
@@ -636,6 +642,65 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
         );
       }
     }
+  }
+}
+
+// ── Web Upload section ────────────────────────────────────────────────────
+
+class _WebUploadSection extends ConsumerWidget {
+  const _WebUploadSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings   = ref.watch(settingsProvider);
+    final statsAsync = ref.watch(webUploadStatsProvider);
+
+    final stats    = statsAsync.valueOrNull;
+    Color dotColor = Colors.orange;
+    String statusLine;
+
+    if (stats == null) {
+      statusLine = '${_shortUrl(settings.webUploadUrl)} — waiting for data…';
+    } else if (stats.sent == 0 && stats.failed > 0) {
+      statusLine = '${_shortUrl(settings.webUploadUrl)} — ${stats.failed} failed';
+      dotColor   = Colors.red;
+    } else {
+      final lastStr = stats.lastSuccess != null
+          ? _timeAgo(stats.lastSuccess!)
+          : '—';
+      statusLine = '${_shortUrl(settings.webUploadUrl)}  ·  '
+          'Sent: ${stats.sent}  ·  Err: ${stats.failed}  ·  Last: $lastStr';
+      dotColor = stats.failed > 0 ? Colors.orange : Colors.green;
+    }
+
+    return _SettingsSection(
+      title: 'Web Upload',
+      children: [
+        ListTile(
+          leading: Icon(Icons.cloud_done_outlined, color: dotColor),
+          title: const Text('Forwarding data to rivr.co.nl'),
+          subtitle: Text(statusLine),
+          trailing: Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: dotColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _shortUrl(String url) =>
+      url.replaceAll(RegExp(r'^https?://'), '').split('/').first;
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    return '${diff.inHours}h ago';
   }
 }
 

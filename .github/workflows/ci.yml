@@ -66,12 +66,12 @@ jobs:
 
       - name: Build Linux (release)
         if: matrix.platform == 'linux'
-        run: flutter build linux --release
+        run: flutter build linux --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}
 
       - name: Build Windows (release)
         if: matrix.platform == 'windows'
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}
 
       - name: Build Android APK (release)
         if: matrix.platform == 'android'
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=INGEST_TOKEN=${{ secrets.INGEST_TOKEN }}

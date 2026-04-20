@@ -8,6 +8,7 @@ import 'screens/diagnostics_screen.dart';
 import 'screens/settings_screen.dart';
 import 'widgets/connection_banner.dart';
 import 'providers/settings_provider.dart';
+import 'providers/app_providers.dart';
 
 class RivrApp extends ConsumerWidget {
   const RivrApp({super.key});
@@ -134,6 +135,16 @@ class RivrShell extends ConsumerStatefulWidget {
 
 class _RivrShellState extends ConsumerState<RivrShell> {
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Eagerly read the forward provider so it is created (and the service
+    // starts) as soon as the shell mounts — even before any navigation.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(telemetryForwardProvider);
+    });
+  }
 
   static const _tabs = [
     NavigationDestination(
