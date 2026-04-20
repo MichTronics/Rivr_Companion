@@ -760,13 +760,18 @@ class _RawLogTabState extends ConsumerState<_RawLogTab> {
   }
 
   Color _lineColor(String line) {
-    if (line.length > 9) {
-      final tag = line.substring(9); // skip "HH:MM:SS "
-      if (tag.startsWith('[CHAT]')) return Colors.cyanAccent;
-      if (tag.startsWith('[MET]')) return Colors.yellowAccent;
-      if (tag.startsWith('[NODE]')) return Colors.lightBlueAccent;
-      if (tag.startsWith('[TEL]')) return Colors.orangeAccent;
-      if (tag.startsWith('[DEV]')) return Colors.purpleAccent;
+    // Skip the "HH:MM:SS " timestamp prefix added by LogNotifier.
+    final c = line.length > 9 ? line.substring(9) : line;
+    // BLE frame descriptions: "RX BLE_CHAT ...", "TX BLE_CHAT ..."
+    // USB text lines:          "@CHT {...}", "@BCN {...}", "@MET {...}"
+    if (c.contains('BLE_CHAT') || c.startsWith('@CHT')) return Colors.cyanAccent;
+    if (c.contains('BLE_BEACON') || c.startsWith('@BCN') ||
+        c.contains('BEACON src=')) return Colors.lightBlueAccent;
+    if (c.contains('BLE_METRICS') || c.startsWith('@MET')) return Colors.yellowAccent;
+    if (c.contains('BLE_TELEMETRY') || c.startsWith('@TEL')) return Colors.orangeAccent;
+    if (c.contains('BLE_CP:device') || c.contains('Node ID')) return Colors.purpleAccent;
+    if (c.startsWith('error') || c.contains('invalid') || c.contains('ERR')) {
+      return Colors.redAccent;
     }
     return Colors.greenAccent;
   }

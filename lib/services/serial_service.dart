@@ -197,10 +197,11 @@ class SerialService extends RivrTransport {
         _lineBuffer.clear();
         final event = RivrProtocol.parseLine(line);
         if (event != null && !_disposed && !_eventCtrl.isClosed) {
-          // For structured events that consume the raw line (MetricsEvent,
-          // TelemetryEvent) also emit the original text as a RawLineEvent so
-          // it appears in the raw-log tab unchanged.
-          if (event is MetricsEvent || event is TelemetryEvent) {
+          // Always emit the raw text first — same contract as BLE (which always
+          // emits RawLineEvent via describeFrame before the structured event).
+          // This means LogNotifier only needs to watch RawLineEvent regardless
+          // of transport, and adding new packet types never breaks the log.
+          if (event is! RawLineEvent) {
             _eventCtrl.add(RawLineEvent(line));
           }
           _eventCtrl.add(event);

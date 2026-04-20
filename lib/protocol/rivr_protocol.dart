@@ -361,6 +361,20 @@ class RivrFrameCodec {
   static const int _kLegacyBleMetricsLen = 48;
   static const int _kFullBleMetricsLen = 132;
 
+  static const _pktTypeNames = {
+    1: 'CHAT',
+    2: 'BEACON',
+    3: 'ROUTE_REQ',
+    4: 'ROUTE_RPL',
+    5: 'ACK',
+    6: 'DATA',
+    7: 'PROG_PUSH',
+    8: 'TELEMETRY',
+    9: 'MAILBOX',
+    10: 'ALERT',
+    11: 'METRICS',
+  };
+
   static String describeFrame(Uint8List bytes, {required String direction}) {
     final frame = RivrFrame.decode(bytes);
     final hex = bytes
@@ -371,15 +385,63 @@ class RivrFrameCodec {
       return '$direction BLE_FRAME invalid len=${bytes.length} hex=$hex';
     }
 
-    return '$direction BLE_FRAME'
-        ' type=${frame.pktType}'
-        ' src=0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}'
-        ' dst=0x${frame.dstId.toRadixString(16).toUpperCase().padLeft(8, '0')}'
+    final typeName =
+        _pktTypeNames[frame.pktType] ?? 'TYPE${frame.pktType}';
+    final src =
+        '0x${frame.srcId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+    final dst =
+        '0x${frame.dstId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+
+    final base = '$direction BLE_$typeName'
+        ' src=$src'
+        ' dst=$dst'
         ' seq=${frame.seq}'
-        ' pkt=${frame.pktId}'
         ' hop=${frame.hopCount}'
-        ' len=${frame.payload.length}'
-        ' hex=$hex';
+        ' len=${frame.payload.length}';
+
+    // Decode beacon payload inline so it is readable without a hex editor.
+    if (frame.pktType == _kPktBeacon && frame.payload.length >= 12) {
+      final csBytes = frame.payload.sublist(0, 10);
+      final nullIdx = csBytes.indexOf(0);
+      final csEnd = nullIdx >= 0 ? nullIdx : 10;
+      final callsign =
+          String.fromCharCodes(csBytes.sublist(0, csEnd)).trim();
+      final role = frame.payload[11];
+      const roleNames = {1: 'client', 2: 'repeater', 3: 'gateway'};
+      final roleName = roleNames[role] ?? 'role$role';
+
+      String posStr = '';
+      const int kFlagHasPos = 0x10;
+      if ((frame.flags & kFlagHasPos) != 0 && frame.payload.length >= 20) {
+        final bpd = ByteData.sublistView(frame.payload);
+        final latE7 = bpd.getInt32(12, Endian.little);
+        final lonE7 = bpd.getInt32(16, Endian.little);
+        if (latE7 != -2147483648 && lonE7 != -2147483648) {
+          posStr =
+              ' lat=${(latE7 / 1e7).toStringAsFixed(5)} lon=${(lonE7 / 1e7).toStringAsFixed(5)}';
+        }
+      }
+      return '$base cs=${callsign.isEmpty ? '?' : callsign} role=$roleName$posStr';
+    }
+
+    // Decode chat payload inline.
+    if (frame.pktType == _kPktChat && frame.payload.isNotEmpty) {
+      const int kFlagChannel = 0x08;
+      const int kChanHdrLen = 2;
+      int channelId = 0;
+      String text;
+      if ((frame.flags & kFlagChannel) != 0 &&
+          frame.payload.length >= kChanHdrLen) {
+        channelId = frame.payload[0] | (frame.payload[1] << 8);
+        text = utf8.decode(frame.payload.sublist(kChanHdrLen),
+            allowMalformed: true);
+      } else {
+        text = utf8.decode(frame.payload, allowMalformed: true);
+      }
+      return '$base ch=$channelId "${text.trim()}"';
+    }
+
+    return '$base hex=$hex';
   }
 
   /// Parse a received BLE notification (one complete binary frame) into a
