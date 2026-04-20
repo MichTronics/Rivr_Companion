@@ -43,6 +43,98 @@ class DeviceInfoEvent extends RivrEvent {
   DeviceInfoEvent({required this.nodeId, required this.callsign, this.lat, this.lon});
 }
 
+class RivrLogFormatter {
+  static String? toUsbLikeRawLine(RivrEvent event) {
+    if (event is RawLineEvent) return event.line;
+
+    if (event is ChatEvent) {
+      final message = event.message;
+      return '@CHT ${jsonEncode({
+        'src': _hex32(message.senderNodeId),
+        'text': message.text,
+        'chan': message.channelId,
+      })}';
+    }
+
+    if (event is TelemetryEvent) {
+      final reading = event.reading;
+      return '@TEL ${jsonEncode({
+        'src': _hex32(reading.srcNodeId),
+        'sid': reading.sensorId,
+        'val': reading.valueX100,
+        'unit': reading.unitCode,
+        'ts': reading.timestampS,
+      })}';
+    }
+
+    if (event is NodeEvent) {
+      final node = event.node;
+      final payload = <String, dynamic>{
+        'src': _hex32(node.nodeId),
+        'cs': node.callsign,
+        'rssi': node.rssiDbm,
+        'snr': node.snrDb,
+        'hop': max(node.hopCount - 1, 0),
+        'score': node.linkScore,
+        'role': node.role,
+      };
+      if (node.lat != null) payload['lat'] = node.lat;
+      if (node.lon != null) payload['lon'] = node.lon;
+      return '@BCN ${jsonEncode(payload)}';
+    }
+
+    if (event is MetricsEvent) {
+      final metrics = event.metrics;
+      return '@MET ${jsonEncode({
+        'node_id': metrics.nodeId,
+        'dc_pct': metrics.dcPct,
+        'q_depth': metrics.qDepth,
+        'tx_total': metrics.txTotal,
+        'rx_total': metrics.rxTotal,
+        'route_cache': metrics.routeCache,
+        'lnk_cnt': metrics.lnkCnt,
+        'lnk_best': metrics.lnkBest,
+        'lnk_rssi': metrics.lnkRssi,
+        'lnk_loss': metrics.lnkLoss,
+        'relay_skip': metrics.relaySkip,
+        'relay_delay': metrics.relayDelay,
+        'relay_density': metrics.relayDensity,
+        'relay_fwd': metrics.relayFwd,
+        'relay_sel': metrics.relaySel,
+        'relay_can': metrics.relayCan,
+        'rx_fail': metrics.rxDecodeFail,
+        'rx_dup': metrics.rxDedupeDrop,
+        'rx_ttl': metrics.rxTtlDrop,
+        'rx_bad_type': metrics.rxBadType,
+        'rx_bad_hop': metrics.rxBadHop,
+        'tx_full': metrics.txQueueFull,
+        'dc_blk': metrics.dutyBlocked,
+        'no_route': metrics.noRoute,
+        'loop_drop_total': metrics.loopDetectDrop,
+        'rad_rst': metrics.radioHardReset,
+        'rad_txfail': metrics.radioTxFail,
+        'rad_crc': metrics.radioCrcFail,
+        'rc_hit': metrics.routeCacheHit,
+        'rc_miss': metrics.routeCacheMiss,
+        'ack_tx': metrics.ackTx,
+        'ack_rx': metrics.ackRx,
+        'retry_att': metrics.retryAttempt,
+        'retry_ok': metrics.retrySuccess,
+        'retry_fail': metrics.retryFail,
+        'ble_conn': metrics.bleConn,
+        'ble_rx': metrics.bleRx,
+        'ble_tx': metrics.bleTx,
+        'ble_err': metrics.bleErr,
+      })}';
+    }
+
+    return null;
+  }
+
+  static String _hex32(int value) =>
+      '0x${value.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+}
+
 // ── Binary Rivr frame constants ────────────────────────────────────────────
 
 const int _kMagic = 0x5256; // 'RV' little-endian

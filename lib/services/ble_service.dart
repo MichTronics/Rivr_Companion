@@ -362,11 +362,15 @@ class BleService extends RivrTransport {
     }
 
     if (RivrCompanionCodec.isCompanionPacket(packet)) {
+      final event = RivrCompanionCodec.parsePacket(packet);
       _safeAddEvent(
         RawLineEvent(
-            RivrCompanionCodec.describePacket(packet, direction: 'RX')),
+          event != null
+              ? (RivrLogFormatter.toUsbLikeRawLine(event) ??
+                  RivrCompanionCodec.describePacket(packet, direction: 'RX'))
+              : RivrCompanionCodec.describePacket(packet, direction: 'RX'),
+        ),
       );
-      final event = RivrCompanionCodec.parsePacket(packet);
       if (event is DeviceInfoEvent) {
         _connectedNodeId = event.nodeId;
         _bleLog('connected node ID: 0x${event.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')} callsign=${event.callsign}');
@@ -374,12 +378,17 @@ class BleService extends RivrTransport {
       if (event != null) _safeAddEvent(event);
       return;
     }
-    _safeAddEvent(
-      RawLineEvent(RivrFrameCodec.describeFrame(packet, direction: 'RX')),
-    );
     _bleLog('rx ${bytes.length} bytes: '
         '${bytes.take(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}…');
     final event = RivrFrameCodec.parseFrame(packet);
+    _safeAddEvent(
+      RawLineEvent(
+        event != null
+            ? (RivrLogFormatter.toUsbLikeRawLine(event) ??
+                RivrFrameCodec.describeFrame(packet, direction: 'RX'))
+            : RivrFrameCodec.describeFrame(packet, direction: 'RX'),
+      ),
+    );
     if (event == null) {
       _bleLog('parseFrame returned null for ${bytes.length}-byte payload',
           error: true);
