@@ -18,7 +18,6 @@ class DiagnosticsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final history = ref.watch(metricsProvider);
     final latest = ref.watch(latestMetricsProvider);
-    final log = ref.watch(logProvider);
     final settings = ref.watch(settingsProvider);
     final isConnected = ref.watch(connectionStateProvider).maybeWhen(
           data: (s) => s.isConnected,
@@ -47,7 +46,7 @@ class DiagnosticsScreen extends ConsumerWidget {
                 ),
                 _ChartsTab(history: history),
                 const _SensorsTab(),
-                _RawLogTab(lines: log),
+                const _RawLogTab(),
               ],
             ),
           ),
@@ -737,29 +736,99 @@ class _SensorChart extends StatelessWidget {
 
 // ── Raw log tab ───────────────────────────────────────────────────────────
 
-class _RawLogTab extends StatelessWidget {
-  final List<String> lines;
-  const _RawLogTab({required this.lines});
+class _RawLogTab extends ConsumerStatefulWidget {
+  const _RawLogTab();
+
+  @override
+  ConsumerState<_RawLogTab> createState() => _RawLogTabState();
+}
+
+class _RawLogTabState extends ConsumerState<_RawLogTab> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.hasContentDimensions) {
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    }
+  }
+
+  Color _lineColor(String line) {
+    if (line.length > 9) {
+      final tag = line.substring(9); // skip "HH:MM:SS "
+      if (tag.startsWith('[CHAT]')) return Colors.cyanAccent;
+      if (tag.startsWith('[MET]')) return Colors.yellowAccent;
+      if (tag.startsWith('[NODE]')) return Colors.lightBlueAccent;
+      if (tag.startsWith('[TEL]')) return Colors.orangeAccent;
+      if (tag.startsWith('[DEV]')) return Colors.purpleAccent;
+    }
+    return Colors.greenAccent;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final lines = ref.watch(logProvider);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
     return Padding(
       padding: const EdgeInsets.all(8),
-      child: Card(
-        color: Colors.black87,
-        child: lines.isEmpty
-            ? const Center(
-                child: Text('No log data.',
-                    style: TextStyle(color: Colors.green, fontFamily: 'monospace')))
-            : ListView.builder(
-                padding: const EdgeInsets.all(8),
-                itemCount: lines.length,
-                itemBuilder: (ctx, i) => Text(
-                  lines[i],
+      child: Column(
+        children: [
+          SizedBox(
+            height: 32,
+            child: Row(
+              children: [
+                const SizedBox(width: 4),
+                Text(
+                  '${lines.length} / ${LogNotifier.maxLines} lines',
                   style: const TextStyle(
                       color: Colors.green, fontFamily: 'monospace', fontSize: 11),
                 ),
-              ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.clear_all, size: 16),
+                  label: const Text('Clear'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => ref.read(logProvider.notifier).clear(),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Card(
+              color: Colors.black87,
+              child: lines.isEmpty
+                  ? const Center(
+                      child: Text('No log data.',
+                          style: TextStyle(
+                              color: Colors.green, fontFamily: 'monospace')))
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(8),
+                      itemCount: lines.length,
+                      itemBuilder: (ctx, i) => Text(
+                        lines[i],
+                        style: TextStyle(
+                            color: _lineColor(lines[i]),
+                            fontFamily: 'monospace',
+                            fontSize: 11),
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }

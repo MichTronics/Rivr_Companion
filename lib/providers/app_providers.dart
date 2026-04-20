@@ -333,20 +333,56 @@ final latestMetricsProvider = Provider<RivrMetrics>((ref) {
 // ── Raw log lines ─────────────────────────────────────────────────────────
 
 class LogNotifier extends Notifier<List<String>> {
-  static const _maxLines = 200;
+  static const maxLines = 500;
 
   @override
   List<String> build() {
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
         if (event is RawLineEvent) {
-          final l = [...state, event.line];
-          state = l.length > _maxLines ? l.sublist(l.length - _maxLines) : l;
+          _add(event.line);
+        } else if (event is ChatEvent) {
+          final m = event.message;
+          final src =
+              '0x${m.senderNodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          _add('[CHAT] from=${m.senderName}($src) ch=${m.channelId} "${m.text}"');
+        } else if (event is MetricsEvent) {
+          final m = event.metrics;
+          final id =
+              '0x${m.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          _add('[MET] node=$id dc=${m.dcPct}% rx=${m.rxTotal} tx=${m.txTotal}'
+              ' lnk=${m.lnkCnt} rssi=${m.lnkRssi}dBm');
+        } else if (event is NodeEvent) {
+          final n = event.node;
+          final id =
+              '0x${n.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          _add('[NODE] id=$id cs=${n.callsign} hop=${n.hopCount}'
+              ' rssi=${n.rssiDbm}dBm score=${n.linkScore}');
+        } else if (event is TelemetryEvent) {
+          final t = event.reading;
+          final src =
+              '0x${t.srcNodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          final val = (t.valueX100 / 100).toStringAsFixed(2);
+          _add('[TEL] src=$src sid=${t.sensorId} val=$val unit=${t.unitCode}');
+        } else if (event is DeviceInfoEvent) {
+          final id =
+              '0x${event.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          _add('[DEV] id=$id cs=${event.callsign}');
         }
       });
     });
     return [];
   }
+
+  void _add(String line) {
+    final now = DateTime.now();
+    final ts =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    final l = [...state, '$ts $line'];
+    state = l.length > maxLines ? l.sublist(l.length - maxLines) : l;
+  }
+
+  void clear() => state = [];
 }
 
 final logProvider = NotifierProvider<LogNotifier, List<String>>(LogNotifier.new);
