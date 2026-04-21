@@ -64,6 +64,7 @@ class TelemetryForwardService {
           'lon': event.node.lon,
           'rssi': event.node.rssiDbm,
           'hopCount': event.node.hopCount,
+          'role': event.node.role,
         },
         'ts': DateTime.now().millisecondsSinceEpoch,
       };
