@@ -369,7 +369,11 @@ class _MeshPainter extends CustomPainter {
         ? selfNode.callsign
         : 'This\nDevice';
     _drawNode(canvas, thisPos, label: selfLabel,
-        color: primaryColor, radius: 22, textColor: Colors.white);
+      color: primaryColor,
+      radius: 22,
+      textColor: Colors.white,
+      isRepeater: selfNode?.isRepeater ?? false,
+      isGateway: selfNode?.isGateway ?? false);
 
     // Draw discovered nodes
     for (final e in positions.entries) {

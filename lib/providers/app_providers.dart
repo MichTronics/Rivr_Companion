@@ -214,7 +214,7 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
             linkScore: existing?.linkScore ?? 100,
             lossPercent: existing?.lossPercent ?? 0,
             lastSeen: DateTime.now(),
-            role: existing?.role ?? 1,
+            role: event.role != 0 ? event.role : (existing?.role ?? 1),
             // Preserve existing position unless a new one is provided.
             lat: event.lat ?? (existing?.hopCount == 0 ? existing?.lat : null),
             lon: event.lon ?? (existing?.hopCount == 0 ? existing?.lon : null),

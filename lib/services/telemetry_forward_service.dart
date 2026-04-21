@@ -35,6 +35,9 @@ class TelemetryForwardService {
   DateTime? _lastSuccess;
 
   final _statsController = StreamController<WebUploadStats>.broadcast();
+  // Caches the most recently seen role per node so that position-only updates
+  // (BEACON pos log lines, role=0) can still be uploaded with the correct role.
+  final Map<int, int> _roleCache = {};
 
   /// Live stream of upload statistics — listen in the UI to show status.
   Stream<WebUploadStats> get statsStream => _statsController.stream;
@@ -48,23 +51,48 @@ class TelemetryForwardService {
   /// Start listening to [eventStream] and forwarding events.
   void attach(Stream<RivrEvent> eventStream) {
     _sub?.cancel();
+    _roleCache.clear();
     _sub = eventStream.listen(_onEvent);
   }
 
   void _onEvent(RivrEvent event) {
     Map<String, dynamic>? payload;
 
-    if (event is NodeEvent && event.node.hasPosition) {
+    if (event is NodeEvent) {
+      final node = event.node;
+      if (node.role != 0) _roleCache[node.nodeId] = node.role;
+      if (node.hasPosition) {
+        final resolvedRole = node.role != 0 ? node.role : (_roleCache[node.nodeId] ?? 0);
+        payload = {
+          'type': 'node',
+          'data': {
+            'nodeId': node.nodeIdHex,
+            'callsign': node.callsign,
+            'lat': node.lat,
+            'lon': node.lon,
+            'rssi': node.rssiDbm,
+            'hopCount': node.hopCount,
+            'role': resolvedRole,
+          },
+          'ts': DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+    } else if (event is DeviceInfoEvent &&
+        event.nodeId != 0 &&
+        event.lat != null &&
+        event.lon != null &&
+        event.role != 0) {
       payload = {
         'type': 'node',
         'data': {
-          'nodeId': event.node.nodeIdHex,
-          'callsign': event.node.callsign,
-          'lat': event.node.lat,
-          'lon': event.node.lon,
-          'rssi': event.node.rssiDbm,
-          'hopCount': event.node.hopCount,
-          'role': event.node.role,
+          'nodeId':
+              '0x${event.nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}',
+          'callsign': event.callsign,
+          'lat': event.lat,
+          'lon': event.lon,
+          'rssi': null,
+          'hopCount': 0,
+          'role': event.role,
         },
         'ts': DateTime.now().millisecondsSinceEpoch,
       };

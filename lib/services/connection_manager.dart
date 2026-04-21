@@ -73,8 +73,12 @@ class ConnectionManager {
       _lastState = s;
       _stateController.add(s);
       if (!wasConnected && s.isConnected && _pendingConnectionType == ConnectionType.usb) {
-        // USB just connected — query the node for its stored identity + position.
-        Future.delayed(const Duration(milliseconds: 300), () => send('id\n'));
+        // USB just connected — query identity/position first, then build info
+        // so the parser can combine self role with the same node ID.
+        Future.delayed(const Duration(milliseconds: 300), () {
+          send('id\n');
+          Future.delayed(const Duration(milliseconds: 150), () => send('info\n'));
+        });
       }
       if (wasConnected && !s.isConnected) {
         RivrProtocol.resetIdState();

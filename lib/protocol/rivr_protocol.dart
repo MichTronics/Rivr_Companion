@@ -40,7 +40,15 @@ class DeviceInfoEvent extends RivrEvent {
   /// Geographic position decoded from the `id` CLI response; null if not set.
   final double? lat;
   final double? lon;
-  DeviceInfoEvent({required this.nodeId, required this.callsign, this.lat, this.lon});
+  /// Node role: 0=unknown, 1=client, 2=repeater, 3=gateway.
+  final int role;
+  DeviceInfoEvent({
+    required this.nodeId,
+    required this.callsign,
+    this.lat,
+    this.lon,
+    this.role = 0,
+  });
 }
 
 class RivrLogFormatter {
@@ -846,7 +854,14 @@ class RivrCompanionCodec {
           final callsign = (m['callsign'] as String?) ?? '';
           final lat = (m['lat'] as num?)?.toDouble();
           final lon = (m['lon'] as num?)?.toDouble();
-          return DeviceInfoEvent(nodeId: nodeId, callsign: callsign, lat: lat, lon: lon);
+          final role = RivrProtocol._parseRoleValue(m['role']);
+          return DeviceInfoEvent(
+            nodeId: nodeId,
+            callsign: callsign,
+            lat: lat,
+            lon: lon,
+            role: role,
+          );
         } catch (_) {
           return RawLineEvent('BLE_CP:device:$infoStr');
         }
@@ -869,7 +884,7 @@ class RivrCompanionCodec {
           callsign: utf8.decode(callsignBytes, allowMalformed: true),
           rssiDbm: pd.getInt8(4),
           snrDb: pd.getInt8(5),
-          hopCount: payload[6],
+          hopCount: payload[6] + 1, // firmware sends raw pkt_hdr.hop (0=direct); convert to 1-based
           linkScore: payload[7],
           role: payload[8],
           lossPercent: 0,
@@ -955,6 +970,9 @@ class RivrProtocol {
   static bool _idNetIdSeen = false;
   static int _idLastEmittedNodeId = 0;
   static String _idLastEmittedCallsign = '';
+  static double? _idLastEmittedLat;
+  static double? _idLastEmittedLon;
+  static int _idLastEmittedRole = 0;
 
   static final _idNodeIdPattern =
       RegExp(r'Node ID\s*:\s*(0x[0-9A-Fa-f]+)', caseSensitive: false);
@@ -964,6 +982,9 @@ class RivrProtocol {
       RegExp(r'Net ID\s*:', caseSensitive: false);
   static final _idPositionPattern =
       RegExp(r'Position\s*:\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)', caseSensitive: false);
+  static final _buildInfoRolePattern = RegExp(
+      r'\[RIVR\].*\brole=(client|repeater|gateway)\b',
+      caseSensitive: false);
 
   /// Reset the `id`-response accumulator (call on disconnect).
   static void resetIdState() {
@@ -972,6 +993,9 @@ class RivrProtocol {
     _idNetIdSeen = false;
     _idLastEmittedNodeId = 0;
     _idLastEmittedCallsign = '';
+    _idLastEmittedLat = null;
+    _idLastEmittedLon = null;
+    _idLastEmittedRole = 0;
   }
 
   // ── BEACON pos log line ─────────────────────────────────────────────────────
@@ -1034,6 +1058,24 @@ class RivrProtocol {
     // If the very next line is a Position line we emit a second, richer event
     // that supersedes the first (consumers always take the latest value).
 
+    // Build info may arrive before or after `id`; keep the most recent role
+    // cached and emit a richer self-node update once the node ID is known.
+    final buildInfoMatch = _buildInfoRolePattern.firstMatch(line);
+    if (buildInfoMatch != null) {
+      final role = _parseRoleValue(buildInfoMatch.group(1));
+      _idLastEmittedRole = role;
+      if (_idLastEmittedNodeId != 0) {
+        return DeviceInfoEvent(
+          nodeId: _idLastEmittedNodeId,
+          callsign: _idLastEmittedCallsign,
+          lat: _idLastEmittedLat,
+          lon: _idLastEmittedLon,
+          role: role,
+        );
+      }
+      return null;
+    }
+
     // Phase A: if we just emitted on Net ID, check if current line is Position.
     if (_idNetIdSeen) {
       _idNetIdSeen = false;
@@ -1041,11 +1083,14 @@ class RivrProtocol {
       if (posMatch != null && _idLastEmittedNodeId != 0) {
         final lat = double.tryParse(posMatch.group(1)!);
         final lon = double.tryParse(posMatch.group(2)!);
+        _idLastEmittedLat = lat;
+        _idLastEmittedLon = lon;
         return DeviceInfoEvent(
             nodeId: _idLastEmittedNodeId,
             callsign: _idLastEmittedCallsign,
             lat: lat,
-            lon: lon);
+            lon: lon,
+            role: _idLastEmittedRole);
       }
       // Not a Position line — fall through to normal parsing.
     }
@@ -1072,7 +1117,11 @@ class RivrProtocol {
         _idNetIdSeen = true;
         _idLastEmittedNodeId = nodeId;
         _idLastEmittedCallsign = callsign;
-        return DeviceInfoEvent(nodeId: nodeId, callsign: callsign);
+        return DeviceInfoEvent(
+          nodeId: nodeId,
+          callsign: callsign,
+          role: _idLastEmittedRole,
+        );
       }
     }
 
@@ -1236,6 +1285,27 @@ class RivrProtocol {
     final stripped =
         s.startsWith('0x') || s.startsWith('0X') ? s.substring(2) : s;
     return int.tryParse(stripped, radix: 16);
+  }
+
+  static int _parseRoleValue(Object? value) {
+    if (value is num) {
+      final role = value.toInt();
+      return role >= 1 && role <= 3 ? role : 0;
+    }
+    final roleStr = value?.toString().trim().toLowerCase() ?? '';
+    switch (roleStr) {
+      case '1':
+      case 'client':
+        return 1;
+      case '2':
+      case 'repeater':
+        return 2;
+      case '3':
+      case 'gateway':
+        return 3;
+      default:
+        return 0;
+    }
   }
 
   // ── @BCN JSON parser ──────────────────────────────────────────────────────
