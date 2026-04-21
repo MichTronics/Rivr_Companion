@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart' hide Path;
 
 import '../models/rivr_node.dart';
 import '../providers/app_providers.dart';
+import '../widgets/node_tile.dart';
 
 class NetworkMapScreen extends ConsumerWidget {
   const NetworkMapScreen({super.key});
@@ -40,12 +41,26 @@ class NetworkMapScreen extends ConsumerWidget {
             child: SizedBox(
               width: 600,
               height: 600,
-              child: CustomPaint(
-                painter: _MeshPainter(
-                  nodes: nodes,
-                  primaryColor: Theme.of(context).colorScheme.primary,
-                  textColor: Theme.of(context).colorScheme.onSurface,
-                  linkColor: Theme.of(context).colorScheme.outlineVariant,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (details) {
+                  final pos = details.localPosition;
+                  final positions = _MeshPainter._layoutNodes(
+                    nodes, 300.0, 300.0, const Size(600, 600));
+                  for (final e in positions.entries) {
+                    if ((e.value - pos).distance <= 28.0) {
+                      NodeTile.showDetails(context, e.key);
+                      return;
+                    }
+                  }
+                },
+                child: CustomPaint(
+                  painter: _MeshPainter(
+                    nodes: nodes,
+                    primaryColor: Theme.of(context).colorScheme.primary,
+                    textColor: Theme.of(context).colorScheme.onSurface,
+                    linkColor: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
               ),
             ),
@@ -107,65 +122,126 @@ class _GeoMapView extends StatelessWidget {
           : n.isRepeater
               ? const Color(0xFF00E5A0)
               : _scoreColor(n.linkScore);
+      final String roleBadge = n.isGateway
+          ? 'GW'
+          : n.isRepeater
+              ? 'R'
+              : '';
       return Marker(
         point: LatLng(n.lat!, n.lon!),
-        width: 80,
-        height: 56,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: const [
-                    BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 4,
-                        offset: Offset(0, 2))
-                  ]),
-              child: Icon(
-                n.isGateway
-                    ? Icons.cell_tower
-                    : n.isRepeater
-                        ? Icons.repeat
-                        : Icons.person,
-                size: 14,
-                color: Colors.white,
-              ),
+        width: 96,
+        height: 74,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => NodeTile.showDetails(context, n),
+          child: SizedBox(
+            width: 96,
+            height: 74,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.topCenter,
+              children: [
+                Positioned(
+                  top: 4,
+                  child: _GeoRoleOutline(
+                    isRepeater: n.isRepeater,
+                    isGateway: n.isGateway,
+                  ),
+                ),
+                Positioned(
+                  top: 10,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2.5),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 6,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      n.isGateway
+                          ? Icons.cell_tower
+                          : n.isRepeater
+                              ? Icons.repeat
+                              : Icons.person,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                if (roleBadge.isNotEmpty)
+                  Positioned(
+                    top: 2,
+                    right: 18,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: n.isGateway
+                            ? const Color(0xFF6C63FF)
+                            : const Color(0xFF00E5A0),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white, width: 1.2),
+                      ),
+                      child: Text(
+                        roleBadge,
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Text(
+                    n.displayName,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A2E),
+                      shadows: [
+                        Shadow(
+                          color: Colors.white,
+                          blurRadius: 2,
+                          offset: Offset(-1, -1),
+                        ),
+                        Shadow(
+                          color: Colors.white,
+                          blurRadius: 2,
+                          offset: Offset(1, -1),
+                        ),
+                        Shadow(
+                          color: Colors.white,
+                          blurRadius: 2,
+                          offset: Offset(-1, 1),
+                        ),
+                        Shadow(
+                          color: Colors.white,
+                          blurRadius: 2,
+                          offset: Offset(1, 1),
+                        ),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              n.displayName,
-              style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1A2E),
-                  shadows: [
-                    Shadow(
-                        color: Colors.white,
-                        blurRadius: 2,
-                        offset: Offset(-1, -1)),
-                    Shadow(
-                        color: Colors.white,
-                        blurRadius: 2,
-                        offset: Offset(1, -1)),
-                    Shadow(
-                        color: Colors.white,
-                        blurRadius: 2,
-                        offset: Offset(-1, 1)),
-                    Shadow(
-                        color: Colors.white,
-                        blurRadius: 2,
-                        offset: Offset(1, 1)),
-                  ]),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+          ),
         ),
       );
     }).toList();
@@ -190,6 +266,50 @@ class _GeoMapView extends StatelessWidget {
     if (score >= 40) return Colors.orange.shade600;
     if (score >= 20) return Colors.red.shade400;
     return Colors.grey;
+  }
+}
+
+class _GeoRoleOutline extends StatelessWidget {
+  final bool isRepeater;
+  final bool isGateway;
+
+  const _GeoRoleOutline({
+    required this.isRepeater,
+    required this.isGateway,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isRepeater && !isGateway) {
+      return const SizedBox(width: 48, height: 48);
+    }
+
+    final accent = isGateway
+        ? const Color(0xFF6C63FF)
+        : const Color(0xFF00E5A0);
+
+    if (isGateway) {
+      return Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: accent, width: 2.6),
+        ),
+      );
+    }
+
+    return Transform.rotate(
+      angle: math.pi / 4,
+      child: Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: accent, width: 2.6),
+        ),
+      ),
+    );
   }
 }
 
@@ -321,7 +441,7 @@ class _MeshPainter extends CustomPainter {
     }
   }
 
-  Map<RivrNode, Offset> _layoutNodes(
+  static Map<RivrNode, Offset> _layoutNodes(
       List<RivrNode> nodes, double cx, double cy, Size size) {
     final hop1 = nodes.where((n) => n.hopCount == 1).toList();
     final hop2 = nodes.where((n) => n.hopCount == 2).toList();

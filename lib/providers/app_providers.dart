@@ -182,17 +182,20 @@ class NodesNotifier extends Notifier<Map<int, RivrNode>> {
           // at hopCount==0 by the BEACON pos log parser.
           final selfId = ref.read(connectedNodeIdProvider);
           if (selfId != 0 && incoming.nodeId == selfId) return;
-          // Preserve known callsign/position when the incoming event lacks them
-          // (ntable rows carry no callsign; @BCN position may lag ntable).
+          // Preserve known callsign/position/role when the incoming event lacks
+          // them (ntable rows carry no callsign or role; @BCN position may lag
+          // ntable; role=0 means "unknown" so keep the previously seen value).
           final callsign = incoming.callsign.isNotEmpty
               ? incoming.callsign
               : (existing?.callsign ?? '');
           final lat = incoming.lat ?? existing?.lat;
           final lon = incoming.lon ?? existing?.lon;
+          final role = incoming.role != 0 ? incoming.role : (existing?.role ?? 0);
           final merged = incoming.copyWith(
             callsign: callsign,
             lat: lat,
             lon: lon,
+            role: role,
           );
           _setNode(merged);
         } else if (event is DeviceInfoEvent && event.nodeId != 0) {

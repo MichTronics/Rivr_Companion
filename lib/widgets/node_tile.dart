@@ -70,11 +70,11 @@ class NodeTile extends StatelessWidget {
           ),
         ],
       ),
-      onTap: () => _showDetails(context, node),
+      onTap: () => NodeTile.showDetails(context, node),
     );
   }
 
-  void _showDetails(BuildContext context, RivrNode node) {
+  static void showDetails(BuildContext context, RivrNode node) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(

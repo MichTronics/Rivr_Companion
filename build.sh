@@ -14,7 +14,7 @@ set -euo pipefail
 # ─── INSTELLINGEN ─────────────────────────────────────────────────────────────
 
 INGEST_URL="https://rivr.co.nl"
-INGEST_TOKEN=""                   # ← vul hier je verbindingssleutel in
+INGEST_TOKEN="98c99b3d29f338e3519a094dc1950fc791a19a029f5cda70f74f20d43cd2e1fd"                   # ← vul hier je verbindingssleutel in
 
 # ──────────────────────────────────────────────────────────────────────────────
 
