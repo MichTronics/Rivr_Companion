@@ -37,6 +37,7 @@ class Nodes extends Table {
   IntColumn get role => integer()();
   RealColumn get lat => real().nullable()();
   RealColumn get lon => real().nullable()();
+  TextColumn get alias => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {nodeId};
@@ -60,7 +61,17 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(nodes, nodes.alias);
+      }
+    },
+  );
 
   static QueryExecutor _openConnection() {
     return driftDatabase(name: 'rivr_companion');
@@ -146,8 +157,14 @@ class AppDatabase extends _$AppDatabase {
         role: Value(node.role),
         lat: Value(node.lat),
         lon: Value(node.lon),
+        alias: Value(node.alias),
       ),
     );
+  }
+
+  Future<void> setNodeAlias(int nodeId, String? alias) async {
+    await (update(nodes)..where((t) => t.nodeId.equals(nodeId)))
+        .write(NodesCompanion(alias: Value(alias)));
   }
 
   RivrNode _rowToNode(NodeRow row) {
@@ -163,16 +180,15 @@ class AppDatabase extends _$AppDatabase {
       role: row.role,
       lat: row.lat,
       lon: row.lon,
+      alias: row.alias,
     );
   }
 
   // ── Telemetry ─────────────────────────────────────────────────────────────
 
-  static const _telemetryRetentionDays = 7;
-
-  Future<List<tel_model.TelemetryReading>> getRecentTelemetry() async {
+  Future<List<tel_model.TelemetryReading>> getRecentTelemetry({int retentionDays = 7}) async {
     final cutoffMs = DateTime.now()
-        .subtract(const Duration(days: _telemetryRetentionDays))
+        .subtract(Duration(days: retentionDays))
         .millisecondsSinceEpoch;
     final rows = await (select(telemetryReadings)
           ..where((t) => t.receivedAtMs.isBiggerOrEqualValue(cutoffMs))
@@ -194,9 +210,9 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<void> pruneOldTelemetry() async {
+  Future<void> pruneOldTelemetry({int retentionDays = 7}) async {
     final cutoffMs = DateTime.now()
-        .subtract(const Duration(days: _telemetryRetentionDays))
+        .subtract(Duration(days: retentionDays))
         .millisecondsSinceEpoch;
     await (delete(telemetryReadings)
           ..where((t) => t.receivedAtMs.isSmallerThanValue(cutoffMs)))

@@ -225,6 +225,33 @@ class SerialService extends RivrTransport {
     }
   }
 
+  @override
+  Future<void> sendRaw(Uint8List bytes) async {
+    // Translate BLE companion binary packets to the equivalent serial CLI command.
+    // Packet layout: [magic_lo, magic_hi, version, type, status, payload...]
+    const int hdrLen = 5;
+    if (bytes.length < hdrLen) return;
+    final type = bytes[3];
+    final payload = ByteData.sublistView(bytes, hdrLen);
+
+    String? cmd;
+    if (type == 0x07 && payload.lengthInBytes >= 2) {
+      // SET_NETID: u16 LE
+      final netId = payload.getUint16(0, Endian.little);
+      cmd = 'set netid ${netId.toRadixString(16)}\n';
+    } else if (type == 0x08 && payload.lengthInBytes >= 14) {
+      // SET_SENSOR_CFG: u32 tx_ms, u32 min_delta_ms, u16 d_temp, u16 d_rh, u16 d_vbat
+      final txMs      = payload.getUint32(0, Endian.little);
+      final minDltMs  = payload.getUint32(4, Endian.little);
+      final dTemp     = payload.getUint16(8, Endian.little);
+      final dRh       = payload.getUint16(10, Endian.little);
+      final dVbat     = payload.getUint16(12, Endian.little);
+      cmd = 'set sensor $txMs $minDltMs $dTemp $dRh $dVbat\n';
+    }
+
+    if (cmd != null) await send(cmd);
+  }
+
   // ── Disconnect ────────────────────────────────────────────────────────────
   @override
   Future<void> disconnect() async {

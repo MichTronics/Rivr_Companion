@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -39,6 +40,12 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
     // Mark channel as open — clears unread counter immediately.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(activeChannelProvider.notifier).setActive(widget.channelId);
+      // Scroll to bottom after first frame so history is visible immediately.
+      _scrollToBottom();
+    });
+    // Scroll again after a short delay to catch the async DB seed completing.
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _scrollToBottom();
     });
   }
 
@@ -91,11 +98,7 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(
-          _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
+        _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
       }
     });
   }
@@ -174,7 +177,7 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
 
 // ── Composer ──────────────────────────────────────────────────────────────
 
-class _Composer extends StatelessWidget {
+class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final bool isSending;
   final bool isConnected;
@@ -188,6 +191,45 @@ class _Composer extends StatelessWidget {
   });
 
   @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  final _focusNode = FocusNode();
+  // canRequestFocus: false prevents button clicks from stealing focus.
+  final _sendBtnFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
+
+  @override
+  void initState() {
+    super.initState();
+    // Intercept Enter at key level so the IME connection is never closed
+    // (TextInputAction.send closes it on Linux desktop, losing focus).
+    _focusNode.onKeyEvent = (_, event) {
+      if (event is KeyDownEvent &&
+          (event.logicalKey == LogicalKeyboardKey.enter ||
+           event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+        _handleSend();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    };
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    _sendBtnFocus.dispose();
+    super.dispose();
+  }
+
+  void _handleSend() {
+    widget.onSend();
+    _focusNode.requestFocus();
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _focusNode.requestFocus());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
@@ -196,12 +238,16 @@ class _Composer extends StatelessWidget {
           children: [
             Expanded(
               child: TextField(
-                controller: controller,
-                enabled: isConnected,
+                controller: widget.controller,
+                focusNode: _focusNode,
+                autofocus: true,
+                enabled: widget.isConnected,
+                // send action for mobile soft-keyboard; Enter on desktop is
+                // handled by _focusNode.onKeyEvent above.
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
+                onSubmitted: (_) => _handleSend(),
                 decoration: InputDecoration(
-                  hintText: isConnected
+                  hintText: widget.isConnected
                       ? 'Message…'
                       : 'Connect to a node first',
                   border: const OutlineInputBorder(
@@ -215,8 +261,10 @@ class _Composer extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             IconButton.filled(
-              onPressed: (isConnected && !isSending) ? onSend : null,
-              icon: isSending
+              focusNode: _sendBtnFocus,
+              onPressed:
+                  (widget.isConnected && !widget.isSending) ? _handleSend : null,
+              icon: widget.isSending
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
@@ -367,6 +415,15 @@ class _ChannelActionMenu extends ConsumerWidget {
               title: Text('Leave channel'),
             ),
           ),
+        if (!isGlobal)
+          const PopupMenuItem(
+            value: _ChannelAction.hide,
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.visibility_off_outlined),
+              title: Text('Hide channel'),
+            ),
+          ),
       ],
     );
   }
@@ -386,8 +443,11 @@ class _ChannelActionMenu extends ConsumerWidget {
       case _ChannelAction.leave:
         notifier.leave(channelId);
         Navigator.of(context).pop();
+      case _ChannelAction.hide:
+        notifier.setHidden(channelId, true);
+        Navigator.of(context).pop();
     }
   }
 }
 
-enum _ChannelAction { toggleMute, setTxDefault, leave }
+enum _ChannelAction { toggleMute, setTxDefault, leave, hide }

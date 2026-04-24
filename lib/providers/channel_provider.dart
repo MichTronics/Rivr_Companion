@@ -5,6 +5,7 @@ import '../models/channel.dart';
 import '../models/chat_message.dart';
 import '../protocol/rivr_protocol.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_database.dart';
 import 'app_providers.dart';
 
 // ── Persistence keys ───────────────────────────────────────────────────────
@@ -253,8 +254,30 @@ class ChannelMessagesNotifier extends Notifier<Map<int, List<ChatMessage>>> {
   final Map<String, ({DateTime sentAt, int remaining})> _pendingEchoes = {};
   static const _echoWindow = Duration(seconds: 3);
 
+  AppDatabase get _db => ref.read(appDatabaseProvider);
+
   @override
   Map<int, List<ChatMessage>> build() {
+    // Seed persisted messages from DB asynchronously.
+    Future.microtask(() async {
+      final stored = await _db.getAllMessages();
+      if (stored.isEmpty) return;
+      // Merge with any messages that may have arrived via events already.
+      final current = Map<int, List<ChatMessage>>.from(state);
+      for (final msg in stored) {
+        final list = List<ChatMessage>.from(current[msg.channelId] ?? []);
+        if (!list.any((m) => m.id == msg.id)) {
+          list.add(msg);
+        }
+        list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        if (list.length > _maxMessagesPerChannel) {
+          list.removeRange(0, list.length - _maxMessagesPerChannel);
+        }
+        current[msg.channelId] = list;
+      }
+      state = current;
+    });
+
     // Listen to all incoming events
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {
@@ -326,6 +349,10 @@ class ChannelMessagesNotifier extends Notifier<Map<int, List<ChatMessage>>> {
     }
     current[channelId] = list;
     state = current;
+    // Persist real messages; skip system messages (transient/situational).
+    if (!msg.isSystem) {
+      _db.insertMessage(msg);
+    }
   }
 
   /// Add a locally-composed message to the specified channel immediately.

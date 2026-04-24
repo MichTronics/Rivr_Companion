@@ -4,63 +4,62 @@ publish_to: none
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-  flutter: ">=3.22.0"
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
   # State management
-  flutter_riverpod: ^2.6.1
-  riverpod_annotation: ^2.3.5
+  flutter_riverpod: ^3.0.0
 
   # BLE connectivity
-  flutter_blue_plus: ^1.33.0
+  flutter_blue_plus: ^2.0.0
 
   # USB Serial — Android only (usb_serial), Windows/Linux via libserialport
   usb_serial: ^0.5.2
   flutter_libserialport: ^0.6.0
 
   # Permissions (Android, iOS)
-  permission_handler: ^11.3.1
+  permission_handler: ^12.0.0
 
   # Persistent settings
   shared_preferences: ^2.3.3
 
   # Charts / visualisation
-  fl_chart: ^0.68.0
+  fl_chart: ^1.0.0
 
   # Maps
-  flutter_map: ^6.1.0
+  flutter_map: ^8.0.0
   latlong2: ^0.9.1
 
   # Location / GPS
-  geolocator: ^12.0.0
+  geolocator: ^14.0.0
 
   # HTTP client — used for website telemetry forwarding
   http: ^1.2.0
 
   # Android foreground service — keeps the process alive when backgrounded
-  flutter_foreground_task: ^8.14.0
+  flutter_foreground_task: ^9.0.0
 
   # Utilities
-  intl: ^0.19.0
+  intl: ^0.20.0
   collection: ^1.18.0
   equatable: ^2.0.5
+  wakelock_plus: ^1.3.4
 
   # Local persistence
-  drift: ^2.22.0
-  drift_flutter: ^0.2.0
-  sqlite3_flutter_libs: ^0.5.0
+  drift: ^2.32.0
+  drift_flutter: ^0.3.0
+  sqlite3_flutter_libs: ^0.6.0+eol
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  riverpod_generator: ^2.4.3
-  build_runner: ^2.4.13
-  drift_dev: ^2.22.0
+  flutter_lints: ^6.0.0
+  build_runner: ^2.14.0
+  drift_dev: ^2.32.0
 
 flutter:
   uses-material-design: true

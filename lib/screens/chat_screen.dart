@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -17,12 +18,33 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _controller = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _focusNode = FocusNode();
+  // canRequestFocus: false prevents this button from stealing focus on click.
+  final _sendBtnFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
   bool _isSending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Intercept Enter at key level so the IME connection is never closed
+    // (TextInputAction.send would close it, losing focus on Linux desktop).
+    _focusNode.onKeyEvent = (_, event) {
+      if (event is KeyDownEvent &&
+          (event.logicalKey == LogicalKeyboardKey.enter ||
+           event.logicalKey == LogicalKeyboardKey.numpadEnter)) {
+        _send();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    };
+  }
 
   @override
   void dispose() {
     _controller.dispose();
     _scrollCtrl.dispose();
+    _focusNode.dispose();
+    _sendBtnFocus.dispose();
     super.dispose();
   }
 
@@ -38,6 +60,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!manager.currentState.isConnected) {
       ref.read(chatProvider.notifier).addSystem('Not connected — message not sent.');
       setState(() => _isSending = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusNode.requestFocus());
       return;
     }
 
@@ -51,8 +74,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     await manager.send(RivrProtocol.buildChatCommand(text));
     setState(() => _isSending = false);
+    _focusNode.requestFocus();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus(); // second pass in case setState rebuild deferred it
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
@@ -114,7 +139,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
+                    focusNode: _focusNode,
+                    autofocus: true,
                     enabled: isConnected,
+                    // send action for mobile soft-keyboard; Enter on desktop is
+                    // handled by _focusNode.onKeyEvent to avoid IME close.
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _send(),
                     decoration: InputDecoration(
@@ -128,6 +157,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
                 const SizedBox(width: 8),
                 IconButton.filled(
+                  focusNode: _sendBtnFocus,
                   onPressed: (isConnected && !_isSending) ? _send : null,
                   icon: _isSending
                       ? const SizedBox.square(

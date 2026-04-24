@@ -23,6 +23,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _callsignCtrl  = TextEditingController();
+  final _netIdCtrl     = TextEditingController();
   String? _nodePositionLabel;
 
   @override
@@ -38,6 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _callsignCtrl.dispose();
+    _netIdCtrl.dispose();
     super.dispose();
   }
 
@@ -55,6 +57,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     final canUseSerialCli =
         isConnected && settings.lastConnectionType == ConnectionType.usb;
+    final canUseBle =
+        isConnected && settings.lastConnectionType == ConnectionType.ble;
     final canSendPosition = isConnected;
 
     // Use position from the node if available, fall back to manually set label.
@@ -119,6 +123,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     : settings.myCallsign),
                 onTap: () => _editCallsign(settings),
               ),
+              if (isConnected)
+                ListTile(
+                  leading: const Icon(Icons.hub_outlined),
+                  title: const Text('Network ID'),
+                  subtitle: const Text('16-bit hex ID shared by all nodes in your mesh'),
+                  onTap: () => _editNetId(),
+                ),
             ],
           ),
 
@@ -199,6 +210,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) =>
                     ref.read(settingsNotifierProvider.notifier).setDarkMode(v),
               ),
+              SwitchListTile(
+                secondary: const Icon(Icons.thermostat_outlined),
+                title: const Text('Show temperatures in °F'),
+                subtitle: const Text('Affects sensor and diagnostic views'),
+                value: settings.useFahrenheit,
+                onChanged: (v) => ref
+                    .read(settingsNotifierProvider.notifier)
+                    .setUseFahrenheit(v),
+              ),
+              SwitchListTile(
+                secondary: const Icon(Icons.screen_lock_portrait_outlined),
+                title: const Text('Keep screen awake'),
+                subtitle: const Text('Prevents the display from turning off'),
+                value: settings.keepScreenAwake,
+                onChanged: (v) => ref
+                    .read(settingsNotifierProvider.notifier)
+                    .setKeepScreenAwake(v),
+              ),
+            ],
+          ),
+
+          // ── Data ──────────────────────────────────────────────────────────
+          _SettingsSection(
+            title: 'Data',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.history_outlined),
+                title: const Text('Telemetry retention'),
+                subtitle: Text(
+                    '${settings.telemetryRetentionDays} day${settings.telemetryRetentionDays == 1 ? '' : 's'}'),
+                onTap: () => _pickRetentionDays(settings.telemetryRetentionDays),
+              ),
             ],
           ),
 
@@ -239,6 +282,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           .send(RivrProtocol.cmdRtstats)
                       : null,
                 ),
+                if (isConnected)
+                  ListTile(
+                    leading: const Icon(Icons.sensors),
+                    title: const Text('Sensor TX config'),
+                    subtitle: const Text('Heartbeat interval and delta thresholds'),
+                    onTap: () => _editSensorConfig(),
+                  ),
               ],
             ],
           ),
@@ -261,6 +311,151 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _disconnect() async {
     await ref.read(connectionManagerProvider).disconnect();
+  }
+
+  Future<void> _editNetId() async {
+    _netIdCtrl.clear();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Set Network ID'),
+        content: TextField(
+          controller: _netIdCtrl,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            hintText: 'e.g. 0x1234 or 4660',
+            helperText: '0–65535 in decimal or 0x hex',
+          ),
+          keyboardType: TextInputType.text,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, _netIdCtrl.text.trim()),
+              child: const Text('Apply')),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty) return;
+    int? netId;
+    if (result.startsWith('0x') || result.startsWith('0X')) {
+      netId = int.tryParse(result.substring(2), radix: 16);
+    } else {
+      netId = int.tryParse(result);
+    }
+    if (netId == null || netId < 0 || netId > 0xFFFF) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid Network ID — enter 0–65535')));
+      }
+      return;
+    }
+    ref.read(connectionManagerProvider)
+        .sendRaw(RivrCompanionCodec.buildSetNetId(netId));
+  }
+
+  Future<void> _pickRetentionDays(int current) async {
+    const options = [1, 3, 7, 14, 30];
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Telemetry retention'),
+        children: [
+          for (final days in options)
+            RadioListTile<int>(
+              title: Text('$days day${days == 1 ? '' : 's'}'),
+              value: days,
+              groupValue: current,
+              onChanged: (v) => Navigator.pop(ctx, v),
+            ),
+        ],
+      ),
+    );
+    if (picked != null) {
+      ref.read(settingsNotifierProvider.notifier).setTelemetryRetentionDays(picked);
+    }
+  }
+
+  Future<void> _editSensorConfig() async {
+    // Default values shown: firmware compile-time defaults.
+    const _txOptions = <String, int>{
+      '30 s': 30000, '1 min': 60000, '5 min': 300000,
+      '15 min': 900000, '30 min': 1800000, '1 h': 3600000,
+    };
+    const _tempOptions = <String, int>{
+      '0.1 °C': 10, '0.25 °C': 25, '0.5 °C': 50, '1 °C': 100, '2 °C': 200,
+    };
+    const _rhOptions = <String, int>{
+      '0.5 %': 50, '1 %': 100, '2 %': 200, '5 %': 500,
+    };
+
+    int txMs = 300000, minDeltaMs = 30000, deltaTemp = 50, deltaRh = 100, deltaVbat = 100;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return AlertDialog(
+            title: const Text('Sensor TX Config'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Heartbeat interval'),
+                  DropdownButton<int>(
+                    isExpanded: true,
+                    value: txMs,
+                    items: _txOptions.entries.map((e) =>
+                        DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
+                    onChanged: (v) => setState(() => txMs = v!),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Temperature change threshold'),
+                  DropdownButton<int>(
+                    isExpanded: true,
+                    value: deltaTemp,
+                    items: _tempOptions.entries.map((e) =>
+                        DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
+                    onChanged: (v) => setState(() => deltaTemp = v!),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Humidity change threshold'),
+                  DropdownButton<int>(
+                    isExpanded: true,
+                    value: deltaRh,
+                    items: _rhOptions.entries.map((e) =>
+                        DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
+                    onChanged: (v) => setState(() => deltaRh = v!),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Apply')),
+            ],
+          );
+        });
+      },
+    );
+    if (confirmed == true) {
+      ref.read(connectionManagerProvider).sendRaw(
+        RivrCompanionCodec.buildSetSensorConfig(
+          txMs: txMs,
+          minDeltaMs: minDeltaMs,
+          deltaTemp: deltaTemp,
+          deltaRh: deltaRh,
+          deltaVbat: deltaVbat,
+        ),
+      );
+    }
   }
 
   void _showPositionSnackBar(String message) {
@@ -402,8 +597,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         .send(RivrProtocol.buildSetCallsignCommand(callsign));
   }
 
-  Future<void> _editCallsign(AppSettings settings) async {
-    _callsignCtrl.text = settings.myCallsign;
+  Future<void> _editCallsign(AppSettings settings) async {    _callsignCtrl.text = settings.myCallsign;
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -655,7 +849,7 @@ class _WebUploadSection extends ConsumerWidget {
     final settings   = ref.watch(settingsProvider);
     final statsAsync = ref.watch(webUploadStatsProvider);
 
-    final stats    = statsAsync.valueOrNull;
+    final stats    = statsAsync.value;
     Color dotColor = Colors.orange;
     String statusLine;
 

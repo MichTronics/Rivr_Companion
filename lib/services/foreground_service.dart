@@ -17,7 +17,7 @@ class _RivrTaskHandler extends TaskHandler {
   Future<void> onRepeatEvent(DateTime timestamp) async {}
 
   @override
-  Future<void> onDestroy(DateTime timestamp) async {}
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {}
 }
 
 /// Call once at app startup (before runApp).

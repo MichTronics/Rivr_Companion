@@ -170,6 +170,8 @@ const int _kCpCmdSetCallsign = 0x03;
 const int _kCpCmdGetNeighbors = 0x04;
 const int _kCpCmdSetPosition = 0x05;
 const int _kCpCmdClearPosition = 0x06;
+const int _kCpCmdSetNetId = 0x07;
+const int _kCpCmdSetSensorCfg = 0x08;
 
 const int _kCpPktOk = 0x80;
 const int _kCpPktErr = 0x81;
@@ -810,6 +812,36 @@ class RivrCompanionCodec {
   static Uint8List buildSetCallsign(String callsign) => _buildPacket(
       _kCpCmdSetCallsign, Uint8List.fromList(utf8.encode(callsign)));
   static Uint8List buildGetNeighbors() => _buildPacket(_kCpCmdGetNeighbors);
+
+  /// Build a SET_NETID command — [netId] is a 16-bit value (0x0000–0xFFFF).
+  static Uint8List buildSetNetId(int netId) {
+    final body = ByteData(2);
+    body.setUint16(0, netId & 0xFFFF, Endian.little);
+    return _buildPacket(_kCpCmdSetNetId, body.buffer.asUint8List());
+  }
+
+  /// Build a SET_SENSOR_CONFIG command.
+  ///
+  /// [txMs]        heartbeat interval (ms, min 5000)
+  /// [minDeltaMs]  minimum gap between delta TXes (ms, min 1000)
+  /// [deltaTemp]   temperature change trigger (°C × 100)
+  /// [deltaRh]     humidity change trigger (% × 100)
+  /// [deltaVbat]   battery voltage change trigger (mV)
+  static Uint8List buildSetSensorConfig({
+    required int txMs,
+    required int minDeltaMs,
+    required int deltaTemp,
+    required int deltaRh,
+    required int deltaVbat,
+  }) {
+    final body = ByteData(14);
+    body.setUint32(0,  txMs,       Endian.little);
+    body.setUint32(4,  minDeltaMs, Endian.little);
+    body.setUint16(8,  deltaTemp,  Endian.little);
+    body.setUint16(10, deltaRh,    Endian.little);
+    body.setUint16(12, deltaVbat,  Endian.little);
+    return _buildPacket(_kCpCmdSetSensorCfg, body.buffer.asUint8List());
+  }
 
   static String describePacket(Uint8List bytes, {required String direction}) {
     if (!isCompanionPacket(bytes)) {

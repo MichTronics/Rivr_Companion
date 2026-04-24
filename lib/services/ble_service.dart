@@ -240,6 +240,7 @@ class BleService extends RivrTransport {
       await device.connect(
         timeout: const Duration(seconds: 20),
         autoConnect: false,
+        license: License.free,
       );
     } catch (e) {
       if (!e.toString().contains('133')) rethrow;
@@ -253,6 +254,7 @@ class BleService extends RivrTransport {
       await device.connect(
         timeout: const Duration(seconds: 20),
         autoConnect: false,
+        license: License.free,
       );
     }
   }
@@ -469,6 +471,15 @@ class BleService extends RivrTransport {
 
     final packetToSend = packet;
     await _writeBytes(packetToSend);
+  }
+
+  @override
+  Future<void> sendRaw(Uint8List bytes) async {
+    if (_writeChar == null || _device == null) return;
+    _safeAddEvent(
+      RawLineEvent(RivrCompanionCodec.describePacket(bytes, direction: 'TX')),
+    );
+    await _writeBytes(bytes);
   }
 
   // ── Disconnect ────────────────────────────────────────────────────────────

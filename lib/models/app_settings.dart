@@ -29,6 +29,18 @@ class AppSettings extends Equatable {
   /// Shared secret sent as x-ingest-token header.
   final String webUploadToken;
 
+  /// Show temperatures in Fahrenheit when true (default: false = Celsius).
+  final bool useFahrenheit;
+
+  /// Last selected sensor graph period index (0=1h, 1=6h, 2=24h, 3=7d).
+  final int defaultSensorPeriodIndex;
+
+  /// How many days of telemetry to retain in the local database.
+  final int telemetryRetentionDays;
+
+  /// Keep the screen awake while the app is in the foreground.
+  final bool keepScreenAwake;
+
   const AppSettings({
     this.darkMode = false,
     this.advancedMode = false,
@@ -39,6 +51,10 @@ class AppSettings extends Equatable {
     this.phoneNodeId = 0,
     this.webUploadUrl = kDefaultWebUploadUrl,
     this.webUploadToken = kDefaultWebUploadToken,
+    this.useFahrenheit = false,
+    this.defaultSensorPeriodIndex = 2,
+    this.telemetryRetentionDays = 7,
+    this.keepScreenAwake = false,
   });
 
   AppSettings copyWith({
@@ -51,6 +67,10 @@ class AppSettings extends Equatable {
     int? phoneNodeId,
     String? webUploadUrl,
     String? webUploadToken,
+    bool? useFahrenheit,
+    int? defaultSensorPeriodIndex,
+    int? telemetryRetentionDays,
+    bool? keepScreenAwake,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -62,6 +82,10 @@ class AppSettings extends Equatable {
       phoneNodeId: phoneNodeId ?? this.phoneNodeId,
       webUploadUrl: webUploadUrl ?? this.webUploadUrl,
       webUploadToken: webUploadToken ?? this.webUploadToken,
+      useFahrenheit: useFahrenheit ?? this.useFahrenheit,
+      defaultSensorPeriodIndex: defaultSensorPeriodIndex ?? this.defaultSensorPeriodIndex,
+      telemetryRetentionDays: telemetryRetentionDays ?? this.telemetryRetentionDays,
+      keepScreenAwake: keepScreenAwake ?? this.keepScreenAwake,
     );
   }
 
@@ -74,5 +98,6 @@ class AppSettings extends Equatable {
     darkMode, advancedMode, lastConnectionType,
     lastBleDeviceName, lastUsbBaudRate, myCallsign, phoneNodeId,
     webUploadUrl, webUploadToken,
+    useFahrenheit, defaultSensorPeriodIndex, telemetryRetentionDays, keepScreenAwake,
   ];
 }

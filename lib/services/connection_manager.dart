@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as dev;
+import 'dart:typed_data';
 import '../protocol/rivr_protocol.dart';
 import '../models/app_settings.dart';
 
@@ -41,6 +42,7 @@ abstract class RivrTransport {
   Future<void> connect(String deviceId);
   Future<void> disconnect();
   Future<void> send(String command);
+  Future<void> sendRaw(Uint8List bytes);
 
   void dispose();
 }
@@ -105,6 +107,15 @@ class ConnectionManager {
       return Future.value();
     }
     return _transport!.send(command);
+  }
+
+  Future<void> sendRaw(Uint8List bytes) {
+    if (_transport == null) {
+      dev.log('sendRaw() called with no active transport — dropped',
+          name: 'ConnectionManager', level: 900);
+      return Future.value();
+    }
+    return _transport!.sendRaw(bytes);
   }
 
   Future<void> _detach() async {

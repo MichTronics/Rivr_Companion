@@ -17,6 +17,8 @@ class RivrNode extends Equatable {
   final double? lat;
   /// Geographic longitude in decimal degrees; null if not known.
   final double? lon;
+  /// User-assigned display alias; overrides callsign when set.
+  final String? alias;
 
   const RivrNode({
     required this.nodeId,
@@ -30,14 +32,19 @@ class RivrNode extends Equatable {
     this.role = 0,
     this.lat,
     this.lon,
+    this.alias,
   });
 
   /// True when both lat and lon are available.
   bool get hasPosition => lat != null && lon != null;
 
-  /// Short display label: callsign if non-empty, else truncated hex ID.
+  /// Short display label: alias if set, callsign if non-empty, else truncated hex ID.
   String get displayName =>
-      callsign.isNotEmpty ? callsign : '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+      alias?.isNotEmpty == true
+          ? alias!
+          : callsign.isNotEmpty
+              ? callsign
+              : '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
 
   String get nodeIdHex =>
       '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
@@ -87,6 +94,7 @@ class RivrNode extends Equatable {
     int? role,
     Object? lat = _sentinel,
     Object? lon = _sentinel,
+    Object? alias = _sentinel,
   }) {
     return RivrNode(
       nodeId: nodeId ?? this.nodeId,
@@ -100,6 +108,7 @@ class RivrNode extends Equatable {
       role: role ?? this.role,
       lat: lat == _sentinel ? this.lat : lat as double?,
       lon: lon == _sentinel ? this.lon : lon as double?,
+      alias: alias == _sentinel ? this.alias : alias as String?,
     );
   }
 
@@ -108,6 +117,6 @@ class RivrNode extends Equatable {
 
   @override
   List<Object?> get props =>
-      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen, role, lat, lon];
+      [nodeId, callsign, rssiDbm, snrDb, hopCount, linkScore, lossPercent, lastSeen, role, lat, lon, alias];
 }
 

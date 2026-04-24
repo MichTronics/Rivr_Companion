@@ -453,7 +453,9 @@ class TelemetryNotifier extends Notifier<Map<int, Map<int, TelemetryReading>>> {
   Map<int, Map<int, TelemetryReading>> build() {
     // Seed from DB: compute latest per (srcNodeId, sensorId).
     Future.microtask(() async {
-      final recent = await ref.read(appDatabaseProvider).getRecentTelemetry();
+      final recent = await ref.read(appDatabaseProvider).getRecentTelemetry(
+          retentionDays: ref.read(settingsProvider).telemetryRetentionDays,
+        );
       if (recent.isEmpty) return;
       final map = <int, Map<int, TelemetryReading>>{};
       for (final r in recent) {
@@ -496,7 +498,7 @@ final telemetryProvider = NotifierProvider<TelemetryNotifier,
 /// Map key: nodeId → Map key: sensorId → ordered list of readings (oldest first).
 class TelemetryHistoryNotifier
     extends Notifier<Map<int, Map<int, List<TelemetryReading>>>> {
-  static const _maxPoints = 120; // ~2 h at 60 s TX interval
+  static const _maxPoints = 10080; // 7 days at 1-min TX interval
 
   AppDatabase get _db => ref.read(appDatabaseProvider);
 
@@ -504,7 +506,9 @@ class TelemetryHistoryNotifier
   Map<int, Map<int, List<TelemetryReading>>> build() {
     // Seed with last 7 days of readings from the database.
     Future.microtask(() async {
-      final stored = await _db.getRecentTelemetry();
+      final stored = await _db.getRecentTelemetry(
+          retentionDays: ref.read(settingsProvider).telemetryRetentionDays,
+        );
       if (stored.isEmpty) return;
       final map = <int, Map<int, List<TelemetryReading>>>{};
       for (final r in stored) {
@@ -525,7 +529,9 @@ class TelemetryHistoryNotifier
       state = merged;
     });
     // Prune stale rows from the DB once on startup (best-effort).
-    Future.microtask(() => _db.pruneOldTelemetry());
+    Future.microtask(() => _db.pruneOldTelemetry(
+        retentionDays: ref.read(settingsProvider).telemetryRetentionDays,
+    ));
 
     ref.listen(eventStreamProvider, (_, next) {
       next.whenData((event) {

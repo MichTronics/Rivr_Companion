@@ -5,6 +5,20 @@ import 'package:intl/intl.dart';
 
 import '../models/telemetry_reading.dart';
 import '../providers/app_providers.dart';
+import '../providers/settings_provider.dart';
+
+// ── Period enum ───────────────────────────────────────────────────────────
+
+enum _Period {
+  h1('1u', Duration(hours: 1)),
+  h6('6u', Duration(hours: 6)),
+  h24('24u', Duration(hours: 24)),
+  d7('7d', Duration(days: 7));
+
+  final String label;
+  final Duration window;
+  const _Period(this.label, this.window);
+}
 
 /// Full-screen sensor telemetry view shown when the user opens the Sensor channel.
 class SensorChannelScreen extends ConsumerWidget {
@@ -19,11 +33,31 @@ class SensorChannelScreen extends ConsumerWidget {
   }
 }
 
-class _SensorBody extends ConsumerWidget {
+class _SensorBody extends ConsumerStatefulWidget {
   const _SensorBody();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SensorBody> createState() => _SensorBodyState();
+}
+
+class _SensorBodyState extends ConsumerState<_SensorBody> {
+  _Period _period = _Period.h24;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final idx = ref.read(settingsProvider).defaultSensorPeriodIndex;
+      if (idx >= 0 && idx < _Period.values.length) {
+        setState(() => _period = _Period.values[idx]);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings  = ref.watch(settingsProvider);
+    final useFahrenheit = settings.useFahrenheit;
     final telemetry = ref.watch(telemetryProvider);
     final history   = ref.watch(telemetryHistoryProvider);
 
@@ -47,63 +81,96 @@ class _SensorBody extends ConsumerWidget {
       );
     }
 
+    final cutoff = DateTime.now().subtract(_period.window);
+
     return ListView(
       padding: const EdgeInsets.all(12),
-      children: telemetry.entries.map((nodeEntry) {
-        final nodeId      = nodeEntry.key;
-        final sensors     = nodeEntry.value;
-        final nodeHex     = '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
-        final nodes       = ref.watch(nodesProvider);
-        final node        = nodes[nodeId];
-        final nodeLabel   = (node != null && node.callsign.isNotEmpty)
-            ? '${node.callsign} ($nodeHex)'
-            : nodeHex;
-        final nodeHistory = history[nodeId] ?? {};
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  const Icon(Icons.sensors, size: 18),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      nodeLabel,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ]),
-                const Divider(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: sensors.values
-                      .map((r) => _SensorTile(reading: r))
-                      .toList(),
-                ),
-                ...sensors.keys.map((sensorId) {
-                  final pts = nodeHistory[sensorId] ?? [];
-                  if (pts.length < 2) return const SizedBox.shrink();
-                  final reading = sensors[sensorId]!;
-                  return _SensorChart(
-                    label: reading.sensorLabel,
-                    unitSuffix: reading.unitSuffix,
-                    isTemperature: reading.isTemperature,
-                    points: pts,
-                  );
-                }),
-              ],
+      children: [
+        // ── Period selector ─────────────────────────────────────────────
+        Center(
+          child: SegmentedButton<_Period>(
+            segments: _Period.values
+                .map((p) => ButtonSegment<_Period>(
+                      value: p,
+                      label: Text(p.label),
+                    ))
+                .toList(),
+            selected: {_period},
+            onSelectionChanged: (s) {
+              setState(() => _period = s.first);
+              ref.read(settingsNotifierProvider.notifier)
+                  .setDefaultSensorPeriodIndex(_Period.values.indexOf(s.first));
+            },
+            style: const ButtonStyle(
+              visualDensity: VisualDensity.compact,
             ),
           ),
-        );
-      }).toList(),
+        ),
+        const SizedBox(height: 12),
+        // ── Per-node cards ───────────────────────────────────────────────
+        ...telemetry.entries.map((nodeEntry) {
+          final nodeId      = nodeEntry.key;
+          final sensors     = nodeEntry.value;
+          final nodeHex     = '0x${nodeId.toRadixString(16).toUpperCase().padLeft(8, '0')}';
+          final nodes       = ref.watch(nodesProvider);
+          final node        = nodes[nodeId];
+          final nodeLabel   = (node != null && node.callsign.isNotEmpty)
+              ? '${node.callsign} ($nodeHex)'
+              : nodeHex;
+          final nodeHistory = history[nodeId] ?? {};
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.sensors, size: 18),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        nodeLabel,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                  const Divider(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: sensors.values
+                        .map((r) => _SensorTile(reading: r, useFahrenheit: useFahrenheit))
+                        .toList(),
+                  ),
+                  ...sensors.keys.map((sensorId) {
+                    final allPts = nodeHistory[sensorId] ?? [];
+                    final pts = allPts
+                        .where((r) => r.receivedAt.isAfter(cutoff))
+                        .toList();
+                    if (pts.length < 2) return const SizedBox.shrink();
+                    final reading = sensors[sensorId]!;
+                    final suffix = (reading.isTemperature && useFahrenheit)
+                        ? '°F'
+                        : reading.unitSuffix;
+                    return _SensorChart(
+                      label: reading.sensorLabel,
+                      unitSuffix: suffix,
+                      isTemperature: reading.isTemperature,
+                      useFahrenheit: useFahrenheit,
+                      points: pts,
+                    );
+                  }),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 }
@@ -112,7 +179,8 @@ class _SensorBody extends ConsumerWidget {
 
 class _SensorTile extends StatelessWidget {
   final TelemetryReading reading;
-  const _SensorTile({required this.reading});
+  final bool useFahrenheit;
+  const _SensorTile({required this.reading, this.useFahrenheit = false});
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +195,12 @@ class _SensorTile extends StatelessWidget {
     final ageStr = age.inSeconds < 60
         ? '${age.inSeconds}s ago'
         : '${age.inMinutes}m ago';
+
+    final displayValue = (isTemp && useFahrenheit)
+        ? reading.value * 1.8 + 32
+        : reading.value;
+    final displaySuffix = (isTemp && useFahrenheit) ? '°F' : reading.unitSuffix;
+    final displayStr = '${displayValue.toStringAsFixed(1)}$displaySuffix';
 
     return Container(
       width: 130,
@@ -152,7 +226,7 @@ class _SensorTile extends StatelessWidget {
           ]),
           const SizedBox(height: 6),
           Text(
-            reading.formatted,
+            displayStr,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: color,
@@ -177,12 +251,14 @@ class _SensorChart extends StatelessWidget {
   final String                 label;
   final String                 unitSuffix;
   final bool                   isTemperature;
+  final bool                   useFahrenheit;
   final List<TelemetryReading> points;
 
   const _SensorChart({
     required this.label,
     required this.unitSuffix,
     required this.isTemperature,
+    this.useFahrenheit = false,
     required this.points,
   });
 
@@ -191,7 +267,10 @@ class _SensorChart extends StatelessWidget {
     final cs    = Theme.of(context).colorScheme;
     final color = isTemperature ? cs.tertiary : Colors.blue.shade600;
 
-    final values = points.map((r) => r.value).toList();
+    final values = points.map((r) {
+      final v = r.value;
+      return (isTemperature && useFahrenheit) ? v * 1.8 + 32 : v;
+    }).toList();
     final minVal = values.reduce((a, b) => a < b ? a : b);
     final maxVal = values.reduce((a, b) => a > b ? a : b);
     final pad    = (maxVal - minVal) < 1.0 ? 1.0 : (maxVal - minVal) * 0.1;
@@ -201,7 +280,8 @@ class _SensorChart extends StatelessWidget {
     final t0Sec = points.first.receivedAt.millisecondsSinceEpoch / 1000.0;
     final spots = points.map((r) {
       final x = r.receivedAt.millisecondsSinceEpoch / 1000.0 - t0Sec;
-      return FlSpot(x, r.value);
+      final y = (isTemperature && useFahrenheit) ? r.value * 1.8 + 32 : r.value;
+      return FlSpot(x, y);
     }).toList();
 
     final totalSec     = spots.last.x;
