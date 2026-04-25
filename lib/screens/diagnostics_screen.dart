@@ -504,6 +504,19 @@ class _SensorsTab extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    tooltip: 'Clear sensor data for this node',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      ref
+                          .read(telemetryProvider.notifier)
+                          .clearNode(nodeId);
+                      ref
+                          .read(telemetryHistoryProvider.notifier)
+                          .clearNode(nodeId);
+                    },
+                  ),
                 ]),
                 const Divider(height: 16),
                 // Latest value tiles

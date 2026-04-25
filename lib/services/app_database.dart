@@ -219,6 +219,12 @@ class AppDatabase extends _$AppDatabase {
         .go();
   }
 
+  Future<void> deleteNodeTelemetry(int nodeId) async {
+    await (delete(telemetryReadings)
+          ..where((t) => t.srcNodeId.equals(nodeId)))
+        .go();
+  }
+
   tel_model.TelemetryReading _rowToTelemetry(TelemetryReadingRow row) {
     return tel_model.TelemetryReading(
       srcNodeId: row.srcNodeId,

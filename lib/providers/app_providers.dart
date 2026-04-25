@@ -487,6 +487,13 @@ class TelemetryNotifier extends Notifier<Map<int, Map<int, TelemetryReading>>> {
     });
     return {};
   }
+
+  void clearNode(int nodeId) {
+    final next = Map<int, Map<int, TelemetryReading>>.from(state);
+    next.remove(nodeId);
+    state = next;
+    ref.read(appDatabaseProvider).deleteNodeTelemetry(nodeId);
+  }
 }
 
 final telemetryProvider = NotifierProvider<TelemetryNotifier,
@@ -551,6 +558,12 @@ class TelemetryHistoryNotifier
       });
     });
     return {};
+  }
+
+  void clearNode(int nodeId) {
+    final next = Map<int, Map<int, List<TelemetryReading>>>.from(state);
+    next.remove(nodeId);
+    state = next;
   }
 }
 
