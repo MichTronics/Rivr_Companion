@@ -55,6 +55,9 @@ jobs:
       - name: Get pub dependencies
         run: flutter pub get
 
+      - name: Generate code (drift, etc.)
+        run: dart run build_runner build --delete-conflicting-outputs
+
       # Analyze + tests run once (Linux) — they are platform-independent
       - name: Analyze
         if: matrix.platform == 'linux'
