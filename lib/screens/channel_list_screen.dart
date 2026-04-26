@@ -58,7 +58,7 @@ class ChannelListScreen extends ConsumerWidget {
         return ListView.separated(
           padding: const EdgeInsets.symmetric(vertical: 4),
           itemCount: channels.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+          separatorBuilder: (_, i) => const Divider(height: 1, indent: 16),
           itemBuilder: (context, index) {
             final channelState = channels[index];
             return _ChannelTile(

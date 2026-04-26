@@ -25,7 +25,7 @@ class NodesScreen extends ConsumerWidget {
     final listView = ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: nodes.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      separatorBuilder: (_, i) => const Divider(height: 1, indent: 72),
       itemBuilder: (ctx, i) => NodeTile(node: nodes[i]),
     );
 

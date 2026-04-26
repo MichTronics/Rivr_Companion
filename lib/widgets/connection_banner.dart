@@ -16,7 +16,7 @@ class ConnectionBanner extends ConsumerWidget {
     return connState.when(
       data: (state) => _BannerContent(state: state),
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, e) => const SizedBox.shrink(),
     );
   }
 }

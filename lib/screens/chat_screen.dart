@@ -98,7 +98,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     // Auto-scroll on new message
-    ref.listen(chatProvider, (_, __) {
+    ref.listen(chatProvider, (_, v) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollCtrl.hasClients) {
           _scrollCtrl.animateTo(

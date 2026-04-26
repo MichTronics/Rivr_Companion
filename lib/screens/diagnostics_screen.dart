@@ -727,7 +727,7 @@ class _SensorChart extends StatelessWidget {
                   barWidth: 2,
                   dotData: FlDotData(
                     show: points.length <= 30,
-                    getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                    getDotPainter: (p0, p1, p2, p3) => FlDotCirclePainter(
                       radius: 2.5,
                       color: color,
                       strokeWidth: 0,
@@ -779,7 +779,9 @@ class _RawLogTabState extends ConsumerState<_RawLogTab> {
     // USB text lines:          "@CHT {...}", "@BCN {...}", "@MET {...}"
     if (c.contains('BLE_CHAT') || c.startsWith('@CHT')) return Colors.cyanAccent;
     if (c.contains('BLE_BEACON') || c.startsWith('@BCN') ||
-        c.contains('BEACON src=')) return Colors.lightBlueAccent;
+        c.contains('BEACON src=')) {
+      return Colors.lightBlueAccent;
+    }
     if (c.contains('BLE_METRICS') || c.startsWith('@MET')) return Colors.yellowAccent;
     if (c.contains('BLE_TELEMETRY') || c.startsWith('@TEL')) return Colors.orangeAccent;
     if (c.contains('BLE_CP:device') || c.contains('Node ID')) return Colors.purpleAccent;

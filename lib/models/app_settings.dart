@@ -4,7 +4,9 @@ enum ConnectionType { none, ble, usb }
 
 /// Default web upload endpoint — injected at build time via --dart-define.
 /// Never hard-code the token in source; pass it as:
+/// ```
 ///   flutter build <target> --dart-define=INGEST_TOKEN=<token>
+/// ```
 const kDefaultWebUploadUrl = String.fromEnvironment(
   'INGEST_URL',
   defaultValue: 'https://rivr.co.nl',

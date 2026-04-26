@@ -375,7 +375,7 @@ class _SensorChart extends StatelessWidget {
                   barWidth: 2,
                   dotData: FlDotData(
                     show: points.length <= 30,
-                    getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+                    getDotPainter: (p0, p1, p2, p3) => FlDotCirclePainter(
                       radius: 2.5,
                       color: color,
                       strokeWidth: 0,

@@ -57,8 +57,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     final canUseSerialCli =
         isConnected && settings.lastConnectionType == ConnectionType.usb;
-    final canUseBle =
-        isConnected && settings.lastConnectionType == ConnectionType.ble;
     final canSendPosition = isConnected;
 
     // Use position from the node if available, fall back to manually set label.
@@ -360,17 +358,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     const options = [1, 3, 7, 14, 30];
     final picked = await showDialog<int>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Telemetry retention'),
-        children: [
-          for (final days in options)
-            RadioListTile<int>(
-              title: Text('$days day${days == 1 ? '' : 's'}'),
-              value: days,
-              groupValue: current,
-              onChanged: (v) => Navigator.pop(ctx, v),
-            ),
-        ],
+      builder: (ctx) => RadioGroup<int>(
+        groupValue: current,
+        onChanged: (v) => Navigator.pop(ctx, v),
+        child: SimpleDialog(
+          title: const Text('Telemetry retention'),
+          children: [
+            for (final days in options)
+              RadioListTile<int>(
+                title: Text('$days day${days == 1 ? '' : 's'}'),
+                value: days,
+              ),
+          ],
+        ),
       ),
     );
     if (picked != null) {
@@ -380,14 +380,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _editSensorConfig() async {
     // Default values shown: firmware compile-time defaults.
-    const _txOptions = <String, int>{
+    const txOptions = <String, int>{
       '30 s': 30000, '1 min': 60000, '5 min': 300000,
       '15 min': 900000, '30 min': 1800000, '1 h': 3600000,
     };
-    const _tempOptions = <String, int>{
+    const tempOptions = <String, int>{
       '0.1 °C': 10, '0.25 °C': 25, '0.5 °C': 50, '1 °C': 100, '2 °C': 200,
     };
-    const _rhOptions = <String, int>{
+    const rhOptions = <String, int>{
       '0.5 %': 50, '1 %': 100, '2 %': 200, '5 %': 500,
     };
 
@@ -408,7 +408,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   DropdownButton<int>(
                     isExpanded: true,
                     value: txMs,
-                    items: _txOptions.entries.map((e) =>
+                    items: txOptions.entries.map((e) =>
                         DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
                     onChanged: (v) => setState(() => txMs = v!),
                   ),
@@ -417,7 +417,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   DropdownButton<int>(
                     isExpanded: true,
                     value: deltaTemp,
-                    items: _tempOptions.entries.map((e) =>
+                    items: tempOptions.entries.map((e) =>
                         DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
                     onChanged: (v) => setState(() => deltaTemp = v!),
                   ),
@@ -426,7 +426,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   DropdownButton<int>(
                     isExpanded: true,
                     value: deltaRh,
-                    items: _rhOptions.entries.map((e) =>
+                    items: rhOptions.entries.map((e) =>
                         DropdownMenuItem(value: e.value, child: Text(e.key))).toList(),
                     onChanged: (v) => setState(() => deltaRh = v!),
                   ),
@@ -494,7 +494,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     try {
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
       await _sendPositionCommand(pos.latitude, pos.longitude);
       _showPositionSnackBar('Position sent to node.');
     } catch (e) {
@@ -996,7 +996,7 @@ class _MapPickerScreenState extends State<_MapPickerScreen> {
       if (perm == LocationPermission.denied ||
           perm == LocationPermission.deniedForever) { return; }
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
       final here = LatLng(pos.latitude, pos.longitude);
       if (mounted) {
         setState(() { _pin = here; });

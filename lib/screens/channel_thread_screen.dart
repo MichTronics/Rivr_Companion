@@ -109,7 +109,7 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
     );
 
     // Auto-scroll on new incoming message
-    ref.listen(channelMessageListProvider(widget.channelId), (_, __) {
+    ref.listen(channelMessageListProvider(widget.channelId), (_, v) {
       _scrollToBottom();
     });
 
