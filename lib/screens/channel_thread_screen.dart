@@ -32,7 +32,6 @@ class ChannelThreadScreen extends ConsumerStatefulWidget {
 class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
   final _controller = TextEditingController();
   final _scrollCtrl = ScrollController();
-  bool _isSending = false;
 
   @override
   void initState() {
@@ -58,12 +57,10 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
     super.dispose();
   }
 
-  Future<void> _send() async {
+  void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     _controller.clear();
-
-    setState(() => _isSending = true);
 
     final settings = ref.read(settingsProvider);
     final manager  = ref.read(connectionManagerProvider);
@@ -73,7 +70,6 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
             'Not connected — message not sent.',
             channelId: widget.channelId,
           );
-      setState(() => _isSending = false);
       return;
     }
 
@@ -87,10 +83,9 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
           ),
         );
 
-    await manager.send(
+    manager.send(
       RivrProtocol.buildChatCommand(text, channelId: widget.channelId),
     );
-    setState(() => _isSending = false);
 
     _scrollToBottom();
   }
@@ -165,7 +160,6 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
           ),
           _Composer(
             controller: _controller,
-            isSending: _isSending,
             isConnected: isConnected,
             onSend: _send,
           ),
@@ -179,13 +173,11 @@ class _ChannelThreadScreenState extends ConsumerState<ChannelThreadScreen> {
 
 class _Composer extends StatefulWidget {
   final TextEditingController controller;
-  final bool isSending;
   final bool isConnected;
   final VoidCallback onSend;
 
   const _Composer({
     required this.controller,
-    required this.isSending,
     required this.isConnected,
     required this.onSend,
   });
@@ -262,14 +254,8 @@ class _ComposerState extends State<_Composer> {
             const SizedBox(width: 8),
             IconButton.filled(
               focusNode: _sendBtnFocus,
-              onPressed:
-                  (widget.isConnected && !widget.isSending) ? _handleSend : null,
-              icon: widget.isSending
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
+              onPressed: widget.isConnected ? _handleSend : null,
+              icon: const Icon(Icons.send),
             ),
           ],
         ),
@@ -353,7 +339,7 @@ class _ChatBubble extends StatelessWidget {
                 child: Text(
                   _timeFmt.format(message.timestamp),
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: cs.outline,
+                    color: Colors.white54,
                     fontSize: 11,
                   ),
                 ),

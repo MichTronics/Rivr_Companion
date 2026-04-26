@@ -250,7 +250,7 @@ class _ChatBubble extends StatelessWidget {
                 child: Text(
                   _timeFmt.format(message.timestamp),
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: cs.outline,
+                    color: Colors.white54,
                     fontSize: 11,
                   ),
                 ),
