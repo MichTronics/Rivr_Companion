@@ -53,6 +53,7 @@ abstract class RivrTransport {
 /// Obtain via Riverpod: `ref.watch(connectionManagerProvider)`.
 class ConnectionManager {
   RivrTransport? _transport;
+  bool _disposed = false;
 
   final _stateController = StreamController<RivrConnState>.broadcast();
   final _eventController = StreamController<RivrEvent>.broadcast();
@@ -68,9 +69,11 @@ class ConnectionManager {
 
   /// Replace the active transport.  Disconnects the previous one first.
   Future<void> useTransport(RivrTransport transport) async {
+    if (_disposed) return;
     await _detach();
     _transport = transport;
     _stateSub = transport.stateStream.listen((s) {
+      if (_disposed || _stateController.isClosed) return;
       final wasConnected = _lastState.isConnected;
       _lastState = s;
       _stateController.add(s);
@@ -86,7 +89,10 @@ class ConnectionManager {
         RivrProtocol.resetIdState();
       }
     });
-    _eventSub = transport.eventStream.listen(_eventController.add);
+    _eventSub = transport.eventStream.listen((event) {
+      if (_disposed || _eventController.isClosed) return;
+      _eventController.add(event);
+    });
   }
 
   /// Set the connection type hint so the manager knows when to send `id`.
@@ -128,8 +134,14 @@ class ConnectionManager {
   }
 
   void dispose() {
-    _detach();
-    _stateController.close();
-    _eventController.close();
+    if (_disposed) return;
+    _disposed = true;
+    unawaited(_shutdown());
+  }
+
+  Future<void> _shutdown() async {
+    await _detach();
+    await _stateController.close();
+    await _eventController.close();
   }
 }

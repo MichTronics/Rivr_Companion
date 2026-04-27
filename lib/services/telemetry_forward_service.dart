@@ -18,14 +18,16 @@ class WebUploadStats {
 
 /// Forwards received Rivr events to the Rivr website ingest API.
 ///
-/// Only forwards when [webUploadUrl] is non-empty. Failures are silently
-/// ignored so the companion app is never blocked by connectivity issues.
+/// Only forwards when both the base URL and token are configured. Failures are
+/// silently ignored so the companion app is never blocked by connectivity issues.
 ///
 /// Start by calling [attach] with the connection manager's event stream.
 /// Call [dispose] when no longer needed.
 class TelemetryForwardService {
   final String _baseUrl;
   final String _token;
+
+  bool get _enabled => _baseUrl.isNotEmpty && _token.isNotEmpty;
 
   StreamSubscription<RivrEvent>? _sub;
   final http.Client _client = http.Client();
@@ -51,7 +53,9 @@ class TelemetryForwardService {
   /// Start listening to [eventStream] and forwarding events.
   void attach(Stream<RivrEvent> eventStream) {
     _sub?.cancel();
+    _sub = null;
     _roleCache.clear();
+    if (!_enabled) return;
     _sub = eventStream.listen(_onEvent);
   }
 
@@ -126,6 +130,7 @@ class TelemetryForwardService {
   }
 
   void _post(Map<String, dynamic> payload) {
+    if (!_enabled) return;
     _client
         .post(
           Uri.parse('$_baseUrl/api/ingest'),

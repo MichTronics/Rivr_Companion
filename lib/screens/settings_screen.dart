@@ -824,11 +824,6 @@ class _ConnectSheetState extends ConsumerState<_ConnectSheet> {
       ref.read(connectionManagerProvider).setPendingConnectionType(connType);
       await ref.read(connectionManagerProvider).useTransport(service);
       await ref.read(connectionManagerProvider).connect(id);
-      if (settings.myCallsign.isNotEmpty) {
-        await ref.read(connectionManagerProvider).send(
-              RivrProtocol.buildSetCallsignCommand(settings.myCallsign),
-            );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
